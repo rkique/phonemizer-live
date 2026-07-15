@@ -5,24 +5,24 @@
 Live IPA (International Phonetic Alphabet) transcription. Record speech in the
 browser, get back a word-level transcript, a per-phoneme IPA breakdown aligned
 to a spectrogram, and a running inventory of every phoneme sound you've
-captured.
+captured. I created this to better investigate my Sonority font, and to better understand the discrete segments under each phoneme. However, more broadly this tool can be used to play with phonemes, and help users understand better what individual speech sounds entail.
 
 ## Screenshots
 
-![Full recording view: spectrogram with per-phoneme region overlays and the English/Words/Phonemes transcript tabs](images/Screenshot%202026-07-15%20at%2011.49.30%20AM.png)
+![Full recording view: spectrogram with per-phoneme region overlays and the English/Words/Phonemes transcript tabs](images/recording-view.png)
 *Recording view — spectrogram segmented into phoneme regions, synced to the transcript above.*
 
-![Hover spotlight isolating a single phoneme ("f") on the waveform, blacking out the rest of the spectrogram](images/Screenshot%202026-07-15%20at%2011.49.36%20AM.png)
+![Hover spotlight isolating a single phoneme ("f") on the waveform, blacking out the rest of the spectrogram](images/hover-spotlight.png)
 *Hover spotlight — mousing over the waveform isolates one phoneme and blacks out the rest for close inspection.*
 
-![Phoneme inventory tab: IPA consonant and vowel charts with capture counts, and a spectrogram thumbnail popover for "dʒ"](images/Screenshot%202026-07-15%20at%2011.49.49%20AM.png)
+![Phoneme inventory tab: IPA consonant and vowel charts with capture counts, and a spectrogram thumbnail popover for "dʒ"](images/phoneme-inventory.png)
 *Phoneme inventory — every captured sound plotted on standard IPA consonant/vowel charts, with click-to-preview spectrogram thumbnails.*
 
 ## Summary
 
 - **Recording** — browser mic capture, auto-segmented on silence
   (`useAudioSegmenter.js`), one utterance per segment.
-  
+
 - **Transcription** — `faster-whisper` (`small.en`, or `small` for
   non-English languages) produces word-level timestamps.
 
