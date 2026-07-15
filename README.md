@@ -1,34 +1,55 @@
-# Sonority
+# Phonemizer Live
+
+
 
 Live IPA (International Phonetic Alphabet) transcription. Record speech in the
 browser, get back a word-level transcript, a per-phoneme IPA breakdown aligned
 to a spectrogram, and a running inventory of every phoneme sound you've
 captured.
 
+## Screenshots
+
+![Full recording view: spectrogram with per-phoneme region overlays and the English/Words/Phonemes transcript tabs](images/Screenshot%202026-07-15%20at%2011.49.30%20AM.png)
+*Recording view — spectrogram segmented into phoneme regions, synced to the transcript above.*
+
+![Hover spotlight isolating a single phoneme ("f") on the waveform, blacking out the rest of the spectrogram](images/Screenshot%202026-07-15%20at%2011.49.36%20AM.png)
+*Hover spotlight — mousing over the waveform isolates one phoneme and blacks out the rest for close inspection.*
+
+![Phoneme inventory tab: IPA consonant and vowel charts with capture counts, and a spectrogram thumbnail popover for "dʒ"](images/Screenshot%202026-07-15%20at%2011.49.49%20AM.png)
+*Phoneme inventory — every captured sound plotted on standard IPA consonant/vowel charts, with click-to-preview spectrogram thumbnails.*
+
 ## Summary
 
 - **Recording** — browser mic capture, auto-segmented on silence
   (`useAudioSegmenter.js`), one utterance per segment.
+  
 - **Transcription** — `faster-whisper` (`small.en`, or `small` for
   non-English languages) produces word-level timestamps.
+
 - **Phonemization** — `phonemizer` (espeak-ng backend) converts each word to
   IPA. Default language is English (US); a caret dropdown on the record
   button switches to Chinese (Mandarin), Spanish, Hindi, French, Arabic,
   Portuguese, Russian, German, or Japanese.
+
 - **Alignment** — phonemes within a word are evenly distributed across that
-  word's whisper timestamp span. This is an approximation, not true forced
+  word's whisper timestamp span. Currently this is still an approximation produced by the phonemizer library.
   alignment.
+
 - **Spectrogram** — rendered server-side (`scipy.signal.spectrogram` + PIL,
   custom colormap) for both full recordings and per-phoneme thumbnails.
+
 - **Playback UI** — `wavesurfer.js` with a Regions plugin: click a phoneme to
   play just that segment, hover to spotlight it, three transcript views
   (English / Words / Phonemes).
+
 - **Phoneme inventory** — a separate tab charting every captured phoneme
   against a standard IPA consonant/vowel table, with click-to-preview
   spectrogram thumbnails per example.
+
 - **Export** — per-recording IPA text and WAV audio, plus bulk zip export;
   bulk delete from the sidebar.
-- **Storage** — local only: SQLite (`backend/data/`) for transcripts,
+
+- **Storage** — Currently local only: SQLite (`backend/data/`) for transcripts,
   WAV + PNG files alongside it. Nothing leaves the machine.
 
 ## Architecture
