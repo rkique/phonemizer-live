@@ -2,10 +2,9 @@
 
 
 
-Live IPA (International Phonetic Alphabet) transcription. Record speech in the
-browser, get back a word-level transcript, a per-phoneme IPA breakdown aligned
-to a spectrogram, and a running inventory of every phoneme sound you've
-captured. I created this to investigate my Sonority font, and to better understand the discrete segments under each phoneme. However, more broadly this tool can be used to play with phonemes, and help users understand better what individual speech sounds entail.
+Live IPA (International Phonetic Alphabet) transcription service. You can record speech in the browser, and get back a word-level transcript, a per-phoneme IPA breakdown aligned to a spectrogram, and a running inventory of each phoneme as identified by `phonemizer`.
+
+I created this to investigate my Sonority font. Because my font is an exploration of what more integrated perceptual cues might look like, I wanted to understand how segments for each phoneme differ on spectrographic analysis. More broadly, this tool can be used to play with quick recordings, and help users understand better what individual speech sounds entail.
 
 ## Screenshots
 

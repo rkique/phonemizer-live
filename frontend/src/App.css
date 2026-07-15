@@ -168,7 +168,7 @@
 }
 
 .sidebar-zone-label {
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -177,6 +177,12 @@
 
 .sidebar-zone {
   flex-shrink: 0;
+  box-sizing: border-box;
+  min-height: 59px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   padding: 16px;
   border-bottom: 1px solid var(--divider);
   cursor: pointer;
@@ -208,31 +214,62 @@
 
 .sidebar-header-row {
   flex-shrink: 0;
+  box-sizing: border-box;
+  min-height: 59px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 16px 10px;
+  justify-content: center;
+  padding: 16px;
   gap: 6px;
 }
 
 .sidebar-header-titles {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.select-all {
-  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  cursor: pointer;
-  flex-shrink: 0;
 }
 
 .selected-count {
   font-size: 11px;
-  color: var(--text);
+  color: var(--text-h);
+}
+
+.sidebar-actions-row {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 12px;
+  border-bottom: 1px solid var(--divider);
+  gap: 6px;
+}
+
+.select-all-btn {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-h);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  padding: 0 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.select-all-btn:hover {
+  border-color: var(--accent-border);
+}
+
+.select-all-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .bulk-actions {
@@ -240,13 +277,17 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
+  flex-shrink: 0;
 }
 
 .bulk-export-btn,
 .bulk-delete-btn {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
+  height: 22px;
+  box-sizing: border-box;
   font: inherit;
   font-size: 10px;
   font-weight: 600;
@@ -255,16 +296,22 @@
   white-space: nowrap;
 }
 
+.bulk-export-btn:disabled,
+.bulk-delete-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .bulk-export-btn {
   color: #fff;
   background: #000;
-  padding: 3px 6px;
+  padding: 0 6px;
 }
 
 .bulk-delete-btn {
   color: #e04b4b;
   background: #000;
-  padding: 3px;
+  padding: 0 3px;
 }
 
 .sidebar-list {
@@ -324,27 +371,24 @@
   background: var(--accent-bg);
 }
 
-.item-checkbox,
-.select-all input[type="checkbox"] {
+.item-checkbox {
   appearance: none;
   -webkit-appearance: none;
   flex-shrink: 0;
   width: 13px;
   height: 13px;
-  border: 1px solid var(--text);
+  border: 1px solid var(--checkbox-border);
   background: var(--bg);
   cursor: pointer;
   position: relative;
 }
 
-.item-checkbox:checked,
-.select-all input[type="checkbox"]:checked {
+.item-checkbox:checked {
   background: var(--accent);
   border-color: var(--accent);
 }
 
-.item-checkbox:checked::after,
-.select-all input[type="checkbox"]:checked::after {
+.item-checkbox:checked::after {
   content: "";
   position: absolute;
   left: 3px;
@@ -1216,4 +1260,89 @@
   height: 44px;
   object-fit: fill;
   background: #000;
+}
+
+.phoneme-examples-more {
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 8px 4px 2px;
+  margin-top: 4px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.phoneme-examples-more:hover {
+  text-decoration: underline;
+}
+
+.phoneme-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 24px;
+}
+
+.phoneme-modal {
+  width: 100%;
+  max-width: 640px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+
+.phoneme-modal-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.phoneme-modal-symbol {
+  font-family: var(--ipa);
+  font-size: 22px;
+  color: var(--text-h);
+}
+
+.phoneme-modal-count {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.phoneme-modal-close {
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.phoneme-modal-close:hover {
+  color: var(--text-h);
+}
+
+.phoneme-modal-list {
+  overflow-y: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px;
 }

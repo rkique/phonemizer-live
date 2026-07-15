@@ -73,36 +73,41 @@ function Sidebar({
         onClick={() => onViewChange("recordings")}
       >
         <div className="sidebar-header-row">
-          <div className="sidebar-header-titles">
-            <label className="select-all">
-              <input
-                type="checkbox"
-                checked={allChecked}
-                onChange={toggleAll}
-                disabled={ordered.length === 0}
-              />
-              <span className="sidebar-zone-label">Recordings</span>
-            </label>
+          <span className="sidebar-header-titles">
+            <span className="sidebar-zone-label">Recordings</span>
             {checked.size > 0 && (
               <span className="selected-count">{checked.size} selected</span>
             )}
+          </span>
+        </div>
+
+        <div className="sidebar-actions-row">
+          <button
+            className="select-all-btn"
+            onClick={toggleAll}
+            disabled={ordered.length === 0}
+          >
+            {allChecked ? "Deselect all" : "Select all"}
+          </button>
+          <div className="bulk-actions">
+            <button
+              className="bulk-export-btn"
+              onClick={exportChecked}
+              disabled={checked.size === 0}
+            >
+              Export
+            </button>
+            <button
+              className="bulk-delete-btn"
+              onClick={deleteChecked}
+              disabled={checked.size === 0}
+              aria-label={`Delete ${checked.size} recordings`}
+            >
+              <svg viewBox="0 -960 960 960" width="18" height="18" fill="currentColor">
+                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120zm400-600H280v520h400zM360-280h80v-360h-80zm160 0h80v-360h-80zM280-720v520z" />
+              </svg>
+            </button>
           </div>
-          {checked.size > 0 && (
-            <div className="bulk-actions">
-              <button className="bulk-export-btn" onClick={exportChecked}>
-                Export
-              </button>
-              <button
-                className="bulk-delete-btn"
-                onClick={deleteChecked}
-                aria-label={`Delete ${checked.size} recordings`}
-              >
-                <svg viewBox="0 -960 960 960" width="18" height="18" fill="currentColor">
-                  <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120zm400-600H280v520h400zM360-280h80v-360h-80zm160 0h80v-360h-80zM280-720v520z" />
-                </svg>
-              </button>
-            </div>
-          )}
         </div>
 
         <div className="sidebar-list">

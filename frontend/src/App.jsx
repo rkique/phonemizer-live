@@ -237,7 +237,7 @@ function App() {
                   className="btn"
                   onClick={toggle}
                 >
-                  <span className="btn-label">{isListening ? "Stop" : "New Recording"}</span>
+                  <span className="btn-label">{isListening ? "Stop" : "New Transcript"}</span>
                   <span className="btn-subtitle">{currentLanguage?.label ?? language}</span>
                 </button>
 

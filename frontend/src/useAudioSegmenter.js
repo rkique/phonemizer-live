@@ -87,15 +87,19 @@ export function useAudioSegmenter(
   }, [finalizeUtterance, onLevel, onElapsed, silenceDurationMs]);
 
   // Acquiring the mic + building the analyser graph is the only async work
-  // between a click and audio actually being captured. Device negotiation
-  // (especially for an external mic) can take a real amount of time, so we
+  // between a click and audio actually being captured. 
+  
+  // Device negotiation(especially for an external mic) can take a real amount of time, so we
   // do this once, eagerly, and keep the stream warm for the session instead
-  // of paying that cost on every "New Recording" click.
+  // of paying that cost on every "New Transcript" click.
+
   const ensureStream = useCallback(() => {
     if (streamRef.current) return Promise.resolve(streamRef.current);
+
     // StrictMode (or a double-click) can call this before the first
     // getUserMedia resolves — cache the in-flight promise so only one
     // request ever goes out, instead of racing two live streams.
+
     if (!streamPromiseRef.current) {
       streamPromiseRef.current = (async () => {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
