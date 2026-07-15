@@ -24,6 +24,7 @@ def init_db() -> None:
             "audio_path": "ALTER TABLE transcripts ADD COLUMN audio_path TEXT",
             "spectrogram_path": "ALTER TABLE transcripts ADD COLUMN spectrogram_path TEXT",
             "words_json": "ALTER TABLE transcripts ADD COLUMN words_json TEXT",
+            "language": "ALTER TABLE transcripts ADD COLUMN language TEXT NOT NULL DEFAULT 'en-us'",
         }
         for column, ddl in migrations.items():
             if column not in existing:
@@ -42,13 +43,13 @@ def connect():
 
 
 def insert_transcript(
-    text: str, ipa: str, duration: float, units_json: str, words_json: str
+    text: str, ipa: str, duration: float, units_json: str, words_json: str, language: str
 ) -> sqlite3.Row:
     with connect() as conn:
         cur = conn.execute(
-            "INSERT INTO transcripts (text, ipa, duration, units_json, words_json) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (text, ipa, duration, units_json, words_json),
+            "INSERT INTO transcripts (text, ipa, duration, units_json, words_json, language) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (text, ipa, duration, units_json, words_json, language),
         )
         return conn.execute(
             "SELECT * FROM transcripts WHERE id = ?", (cur.lastrowid,)

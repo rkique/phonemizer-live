@@ -1,13 +1,22 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const SILENCE_THRESHOLD = 0.02;
-const SILENCE_DURATION_MS = 700;
+// 700ms was cutting recordings into multiple pieces on ordinary
+// mid-sentence pauses/breaths — most natural speech pauses fall well
+// under 1.5s, so this only splits on a genuinely finished utterance.
+export const DEFAULT_SILENCE_DURATION_MS = 1500;
 const MIN_UTTERANCE_MS = 300;
 
-export function useAudioSegmenter(onUtterance, onLevel, onElapsed) {
+export function useAudioSegmenter(
+  onUtterance,
+  onLevel,
+  onElapsed,
+  silenceDurationMs = DEFAULT_SILENCE_DURATION_MS
+) {
   const [isListening, setIsListening] = useState(false);
 
   const streamRef = useRef(null);
+  const streamPromiseRef = useRef(null);
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
   const recorderRef = useRef(null);
@@ -69,32 +78,75 @@ export function useAudioSegmenter(onUtterance, onLevel, onElapsed) {
       silenceStartRef.current = null;
     } else if (hasSpeechRef.current) {
       if (!silenceStartRef.current) silenceStartRef.current = now;
-      if (now - silenceStartRef.current > SILENCE_DURATION_MS) {
+      if (now - silenceStartRef.current > silenceDurationMs) {
         finalizeUtterance();
       }
     }
 
     rafRef.current = requestAnimationFrame(monitor);
-  }, [finalizeUtterance, onLevel, onElapsed]);
+  }, [finalizeUtterance, onLevel, onElapsed, silenceDurationMs]);
+
+  // Acquiring the mic + building the analyser graph is the only async work
+  // between a click and audio actually being captured. Device negotiation
+  // (especially for an external mic) can take a real amount of time, so we
+  // do this once, eagerly, and keep the stream warm for the session instead
+  // of paying that cost on every "New Recording" click.
+  const ensureStream = useCallback(() => {
+    if (streamRef.current) return Promise.resolve(streamRef.current);
+    // StrictMode (or a double-click) can call this before the first
+    // getUserMedia resolves — cache the in-flight promise so only one
+    // request ever goes out, instead of racing two live streams.
+    if (!streamPromiseRef.current) {
+      streamPromiseRef.current = (async () => {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
+
+        const audioCtx = new AudioContext();
+        audioCtxRef.current = audioCtx;
+        if (audioCtx.state === "suspended") {
+          // Creating the context after the getUserMedia await can leave it
+          // suspended in some Chrome versions — the analyser would then
+          // read flat silence for the whole session, breaking both the
+          // live level meter and (more importantly) the RMS-based
+          // speech/silence timing that decides when to auto-segment. Never
+          // let a rejection here block recording itself.
+          audioCtx.resume().catch(() => {});
+        }
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 2048;
+        source.connect(analyser);
+        analyserRef.current = analyser;
+
+        return stream;
+      })();
+    }
+    return streamPromiseRef.current;
+  }, []);
+
+  // Pre-warm as soon as this hook is mounted, so the very first click is
+  // just as instant as subsequent ones. Released on actual page unload
+  // (not React effect cleanup) — StrictMode's dev-only synthetic
+  // mount/unmount/remount would otherwise tear this down and force a
+  // second, duplicate getUserMedia call right after the first.
+  useEffect(() => {
+    ensureStream().catch(() => {});
+    const releaseOnUnload = () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      audioCtxRef.current?.close();
+    };
+    window.addEventListener("pagehide", releaseOnUnload);
+    return () => window.removeEventListener("pagehide", releaseOnUnload);
+  }, [ensureStream]);
 
   const start = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    streamRef.current = stream;
-
-    const audioCtx = new AudioContext();
-    audioCtxRef.current = audioCtx;
-    const source = audioCtx.createMediaStreamSource(stream);
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 2048;
-    source.connect(analyser);
-    analyserRef.current = analyser;
-
+    await ensureStream();
     recordingStartRef.current = performance.now();
     onElapsed?.(0);
     startRecorder();
     setIsListening(true);
     rafRef.current = requestAnimationFrame(monitor);
-  }, [monitor, startRecorder, onElapsed]);
+  }, [ensureStream, monitor, startRecorder, onElapsed]);
 
   const stop = useCallback(() => {
     setIsListening(false);
@@ -110,10 +162,8 @@ export function useAudioSegmenter(onUtterance, onLevel, onElapsed) {
       };
       recorder.stop();
     }
-
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    audioCtxRef.current?.close();
-    streamRef.current = null;
+    // Deliberately don't stop the stream or close the AudioContext here —
+    // they stay warm so the next "New Recording" click is instant too.
   }, [onUtterance]);
 
   return { isListening, start, stop };

@@ -1,4 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+
+const POPOVER_WIDTH = 260;
+const POPOVER_MARGIN = 12;
+const PREVIEW_COUNT = 10;
 
 const CONSONANT_COLS = [
   "Bilabial",
@@ -42,15 +47,15 @@ const VOWEL_ROWS = ["Close", "Near-close", "Close-mid", "Mid", "Open-mid", "Near
 const VOWEL_CELLS = [
   { row: "Close", col: "Front", symbols: ["iː"] },
   { row: "Close", col: "Back", symbols: ["uː"] },
-  { row: "Near-close", col: "Front", symbols: ["ɪ"] },
-  { row: "Near-close", col: "Back", symbols: ["ʊ"] },
+  { row: "Near-close", col: "Front", symbols: ["ɪ", "ɪɹ"] },
+  { row: "Near-close", col: "Back", symbols: ["ʊ", "ʊɹ"] },
   { row: "Mid", col: "Central", symbols: ["ə", "ɚ", "ɜɹ"] },
-  { row: "Open-mid", col: "Front", symbols: ["ɛ"] },
+  { row: "Open-mid", col: "Front", symbols: ["ɛ", "ɛɹ"] },
   { row: "Open-mid", col: "Central", symbols: ["ʌ"] },
-  { row: "Open-mid", col: "Back", symbols: ["ɔː"] },
+  { row: "Open-mid", col: "Back", symbols: ["ɔː", "ɔɹ"] },
   { row: "Near-open", col: "Front", symbols: ["æ"] },
   { row: "Near-open", col: "Central", symbols: ["ɐ"] },
-  { row: "Open", col: "Back", symbols: ["ɑː"] },
+  { row: "Open", col: "Back", symbols: ["ɑː", "ɑɹ"] },
 ];
 
 function PhonemeChart({ title, cols, rows, cells, bySymbol, expanded, onToggle, onExampleClick, apiBase }) {
@@ -113,9 +118,35 @@ function PhonemeChart({ title, cols, rows, cells, bySymbol, expanded, onToggle, 
 }
 
 function PhonemeCard({ entry, expanded, onToggle, onExampleClick, apiBase }) {
+  const buttonRef = useRef(null);
+  const [popoverPos, setPopoverPos] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!expanded || !buttonRef.current) {
+      setPopoverPos(null);
+      return;
+    }
+    const rect = buttonRef.current.getBoundingClientRect();
+    // Anchor to the button's left edge by default, but flip/clamp so the
+    // popover never overflows past the right (or left) edge of the
+    // viewport — previously it stayed anchored to the card and got
+    // clipped invisible by the charts-row's overflow-x:auto ancestor.
+    let left = rect.left;
+    if (left + POPOVER_WIDTH + POPOVER_MARGIN > window.innerWidth) {
+      left = window.innerWidth - POPOVER_WIDTH - POPOVER_MARGIN;
+    }
+    left = Math.max(POPOVER_MARGIN, left);
+    setPopoverPos({ top: rect.bottom + 4, left });
+  }, [expanded]);
+
+  const previewExamples = entry.examples.slice(0, PREVIEW_COUNT);
+  const hasMore = entry.examples.length > PREVIEW_COUNT;
+
   return (
     <div className={entry.count > 0 ? "phoneme-card captured" : "phoneme-card"}>
       <button
+        ref={buttonRef}
         className="phoneme-card-main"
         onClick={() => onToggle(entry.symbol)}
         disabled={entry.count === 0}
@@ -124,24 +155,83 @@ function PhonemeCard({ entry, expanded, onToggle, onExampleClick, apiBase }) {
         <span className="phoneme-count">{entry.count}</span>
       </button>
 
-      {expanded && entry.examples.length > 0 && (
-        <div className="phoneme-examples">
-          {entry.examples.map((ex, i) => (
-            <button
-              key={i}
-              className="phoneme-example"
-              onClick={() => onExampleClick(ex.transcript_id, ex.start)}
-            >
-              <img
-                className="phoneme-thumb"
-                src={`${apiBase}/media/${ex.transcript_id}/segment.png?start=${ex.start}&end=${ex.end}`}
-                alt=""
-              />
-              <span>{ex.word || `${ex.start.toFixed(2)}s`}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {expanded &&
+        entry.examples.length > 0 &&
+        popoverPos &&
+        createPortal(
+          <div
+            className="phoneme-examples"
+            style={{ top: popoverPos.top, left: popoverPos.left }}
+          >
+            {previewExamples.map((ex, i) => (
+              <button
+                key={i}
+                className="phoneme-example"
+                onClick={() => onExampleClick(ex.transcript_id, ex.start)}
+              >
+                <img
+                  className="phoneme-thumb"
+                  src={`${apiBase}/media/${ex.transcript_id}/segment.png?start=${ex.start}&end=${ex.end}`}
+                  alt=""
+                />
+                <span>{ex.word || `${ex.start.toFixed(2)}s`}</span>
+              </button>
+            ))}
+            {hasMore && (
+              <button
+                className="phoneme-examples-more"
+                onClick={() => setModalOpen(true)}
+              >
+                View all {entry.examples.length} →
+              </button>
+            )}
+          </div>,
+          document.body
+        )}
+
+      {modalOpen &&
+        createPortal(
+          <div
+            className="phoneme-modal-backdrop"
+            onClick={() => setModalOpen(false)}
+          >
+            <div className="phoneme-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="phoneme-modal-header">
+                <span className="phoneme-modal-symbol">{entry.symbol}</span>
+                <span className="phoneme-modal-count">
+                  {entry.examples.length} recordings
+                </span>
+                <button
+                  className="phoneme-modal-close"
+                  aria-label="Close"
+                  onClick={() => setModalOpen(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="phoneme-modal-list">
+                {entry.examples.map((ex, i) => (
+                  <button
+                    key={i}
+                    className="phoneme-example"
+                    onClick={() => {
+                      onExampleClick(ex.transcript_id, ex.start);
+                      setModalOpen(false);
+                    }}
+                  >
+                    <img
+                      className="phoneme-thumb"
+                      src={`${apiBase}/media/${ex.transcript_id}/segment.png?start=${ex.start}&end=${ex.end}`}
+                      alt=""
+                    />
+                    <span>{ex.word || `${ex.start.toFixed(2)}s`}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
@@ -151,7 +241,6 @@ function PhonemeInventory({ inventory, onExampleClick, apiBase }) {
   const toggle = (symbol) => setExpanded((prev) => (prev === symbol ? null : symbol));
 
   const bySymbol = Object.fromEntries(inventory.map((e) => [e.symbol, e]));
-  const capturedCount = inventory.filter((e) => e.count > 0).length;
 
   const placedSymbols = new Set([
     ...CONSONANT_CELLS.flatMap((c) => c.symbols),
@@ -163,10 +252,6 @@ function PhonemeInventory({ inventory, onExampleClick, apiBase }) {
 
   return (
     <div className="inventory">
-      <div className="inventory-summary">
-        {capturedCount} / {inventory.length} sounds captured
-      </div>
-
       <div className="charts-row">
         <PhonemeChart
           title="Consonants"
@@ -186,7 +271,7 @@ function PhonemeInventory({ inventory, onExampleClick, apiBase }) {
       </div>
 
       <div className="chart-section">
-        <h3>Diphthongs &amp; r-colored vowels</h3>
+        <h3>Diphthongs</h3>
         <div className="phoneme-row">
           {leftover.map((entry) => (
             <PhonemeCard

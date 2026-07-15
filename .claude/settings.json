@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc -b)",
+      "Bash(npm view *)",
+      "Bash(npm ls *)",
+      "mcp__visualize__read_me",
+      "mcp__Claude_Preview__preview_list"
+    ]
+  }
+}

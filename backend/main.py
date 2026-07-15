@@ -24,9 +24,11 @@ from transcribe import (
     transcribe_audio_with_words,
     units_to_ipa,
     whisper_language_for,
+    word_to_pinyin,
 )
 
 _LANGUAGE_CODES = {lang["code"] for lang in SUPPORTED_LANGUAGES}
+_LANGUAGE_LABELS = {lang["code"]: lang["label"] for lang in SUPPORTED_LANGUAGES}
 
 AUDIO_DIR = Path(__file__).parent / "data" / "audio"
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
@@ -55,6 +57,8 @@ def _serialize(row: sqlite3.Row) -> dict:
         "audio_url": f"/media/{row['id']}.wav" if row["audio_path"] else None,
         "spectrogram_url": f"/media/{row['id']}.png" if row["spectrogram_path"] else None,
         "created_at": row["created_at"],
+        "language": row["language"],
+        "language_label": _LANGUAGE_LABELS.get(row["language"], row["language"]),
     }
 
 #Text export with additional tagging.
@@ -92,11 +96,15 @@ async def transcribe(audio: UploadFile, language: str = Form(DEFAULT_LANGUAGE)) 
         if not text:
             return {"id": None, "text": "", "ipa": "", "units": [], "words": [], "duration": 0}
 
+        if language == "cmn":
+            for w in words:
+                w["pinyin"] = word_to_pinyin(w["word"])
+
         units = build_units(words, duration, language)
         ipa = units_to_ipa(units)
 
         row = storage.insert_transcript(
-            text, ipa, duration, json.dumps(units), json.dumps(words)
+            text, ipa, duration, json.dumps(units), json.dumps(words), language
         )
         media_id = row["id"]
 
@@ -141,6 +149,11 @@ def phonemes() -> dict:
             if u["kind"] != "phoneme":
                 continue
             symbol = normalize_phoneme(u["ch"])
+            if not symbol or any(c.isdigit() or c in "()." for c in symbol):
+                # Guards against stale rows recorded before tone-digit and
+                # language-switch-tag stripping was fixed in text_to_ipa —
+                # these aren't real phonemes and shouldn't show up here.
+                continue
             occurrences[symbol].append(
                 {
                     "transcript_id": row["id"],
@@ -161,7 +174,7 @@ def phonemes() -> dict:
                 "symbol": symbol,
                 "category": entry["category"],
                 "count": len(examples),
-                "examples": examples[:6],
+                "examples": examples,
             }
         )
 
@@ -172,7 +185,7 @@ def phonemes() -> dict:
                 "symbol": symbol,
                 "category": "other",
                 "count": len(examples),
-                "examples": examples[:6],
+                "examples": examples,
             }
         )
 

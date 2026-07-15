@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAudioSegmenter } from "./useAudioSegmenter";
+import { DEFAULT_SILENCE_DURATION_MS, useAudioSegmenter } from "./useAudioSegmenter";
 import Sidebar from "./Sidebar";
 import SpectrogramView from "./SpectrogramView";
 import PhonemeInventory from "./PhonemeInventory";
+// Temporarily disabled while isolating a recording-pipeline bug — untested,
+// not implicated yet, just ruled out of the picture for now.
+// import MobileNotice from "./MobileNotice";
+// import MicPermissionModal from "./MicPermissionModal";
+import LiveWaveform from "./LiveWaveform";
+import SettingsPanel from "./SettingsPanel";
+import Footer from "./Footer";
 import "./App.css";
 
 const API_BASE = "http://127.0.0.1:8000";
+const EDITABLE_TAGS = new Set(["INPUT", "TEXTAREA"]);
+const SILENCE_DURATION_STORAGE_KEY = "phonemizer-silence-duration-ms";
 
 function App() {
   //array of phoneme transcripts
@@ -21,7 +30,16 @@ function App() {
   const [languages, setLanguages] = useState([]);
   const [language, setLanguage] = useState("en-us");
   const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const [silenceDurationMs, setSilenceDurationMs] = useState(() => {
+    const saved = Number(localStorage.getItem(SILENCE_DURATION_STORAGE_KEY));
+    return saved > 0 ? saved : DEFAULT_SILENCE_DURATION_MS;
+  });
   const recordControlRef = useRef(null);
+
+  const handleSilenceDurationChange = (ms) => {
+    setSilenceDurationMs(ms);
+    localStorage.setItem(SILENCE_DURATION_STORAGE_KEY, String(ms));
+  };
 
   const loadPhonemes = useCallback(() => {
     fetch(`${API_BASE}/phonemes`)
@@ -52,6 +70,7 @@ function App() {
   const handleUtterance = useCallback(
     async (blob) => {
       setPending((p) => p + 1);
+      setError(null);
       try {
         const form = new FormData();
         form.append("audio", blob, "utterance.webm");
@@ -66,6 +85,8 @@ function App() {
           setTranscripts((prev) => [...prev, data]);
           setSelectedId(data.id);
           loadPhonemes();
+        } else {
+          setError("No speech detected in that recording — try again.");
         }
       } catch (e) {
         setError("Transcription failed — is the backend running on :8000?");
@@ -76,7 +97,12 @@ function App() {
     [loadPhonemes, language]
   );
 
-  const { isListening, start, stop } = useAudioSegmenter(handleUtterance, setLevel, setElapsed);
+  const { isListening, start, stop } = useAudioSegmenter(
+    handleUtterance,
+    setLevel,
+    setElapsed,
+    silenceDurationMs
+  );
 
   const toggle = async () => {
     setError(null);
@@ -143,83 +169,118 @@ function App() {
 
   const selected = transcripts.find((t) => t.id === selectedId) ?? null;
   const currentLanguage = languages.find((l) => l.code === language);
+  const orderedTranscripts = transcripts.slice().reverse();
+
+  useEffect(() => {
+    const handleKeydown = (e) => {
+      const target = e.target;
+      if (target && (EDITABLE_TAGS.has(target.tagName) || target.isContentEditable)) return;
+
+      if (e.code === "ArrowUp" || e.code === "ArrowDown") {
+        if (orderedTranscripts.length === 0) return;
+        e.preventDefault();
+        const currentIndex = orderedTranscripts.findIndex((t) => t.id === selectedId);
+        let nextIndex;
+        if (currentIndex === -1) nextIndex = 0;
+        else nextIndex = e.code === "ArrowUp" ? currentIndex - 1 : currentIndex + 1;
+        nextIndex = Math.max(0, Math.min(orderedTranscripts.length - 1, nextIndex));
+        setSelectedId(orderedTranscripts[nextIndex].id);
+        setView("recordings");
+      }
+    };
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  });
 
   return (
-    <div className="app">
-      <Sidebar
-        transcripts={transcripts}
-        selectedId={selectedId}
-        view={view}
-        onSelect={(id) => {
-          setSelectedId(id);
-          setView("recordings");
-        }}
-        onViewChange={setView}
-        onDelete={handleDelete}
-        onDeleteMany={deleteIds}
-        onExportMany={exportIds}
-      />
+    <div className="app-shell">
+      {/* <MobileNotice /> */}
+      {/* <MicPermissionModal /> */}
+      <div className="app">
+        <Sidebar
+          transcripts={transcripts}
+          selectedId={selectedId}
+          view={view}
+          pending={pending}
+          onSelect={(id) => {
+            setSelectedId(id);
+            setView("recordings");
+          }}
+          onViewChange={setView}
+          onDelete={handleDelete}
+          onDeleteMany={deleteIds}
+          onExportMany={exportIds}
+        />
 
-      <main className="main">
+        <main className="main">
         <div className="topbar">
-          <div className="brand">
-            <h1>Sonority</h1>
-            <p className="subtitle">Live IPA transcription</p>
+          <div className={isListening ? "controls recording" : "controls"}>
+            <span className="controls-spacer" />
+
+            <div className="controls-cluster">
+              <div className={isListening ? "rec-indicator active" : "rec-indicator"}>
+                <span className="rec-dot" />
+              </div>
+
+              {isListening && (
+                <>
+                  <LiveWaveform level={level} />
+                  <span className="rec-timer">{elapsed.toFixed(2)}s</span>
+                </>
+              )}
+
+              <div
+                className={isListening ? "record-control listening" : "record-control"}
+                ref={recordControlRef}
+              >
+                <button
+                  className="btn"
+                  onClick={toggle}
+                >
+                  <span className="btn-label">{isListening ? "Stop" : "New Recording"}</span>
+                  <span className="btn-subtitle">{currentLanguage?.label ?? language}</span>
+                </button>
+
+                <button
+                  className="lang-caret"
+                  type="button"
+                  disabled={isListening}
+                  aria-label="Change recording language"
+                  onClick={() => setLangMenuOpen((open) => !open)}
+                >
+                  ▾
+                </button>
+
+                {langMenuOpen && (
+                  <div className="lang-menu">
+                    {languages.map((lang) => (
+                      <button
+                        key={lang.code}
+                        className={
+                          lang.code === language ? "lang-menu-item active" : "lang-menu-item"
+                        }
+                        onClick={() => {
+                          setLanguage(lang.code);
+                          setLangMenuOpen(false);
+                        }}
+                      >
+                        {lang.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <span className="controls-spacer" />
           </div>
 
-          <div className="controls">
-            <div className="record-control" ref={recordControlRef}>
-              <button
-                className={isListening ? "btn listening" : "btn"}
-                onClick={toggle}
-              >
-                <span className="btn-label">{isListening ? "Stop" : "New Recording"}</span>
-                <span className="btn-subtitle">{currentLanguage?.label ?? language}</span>
-              </button>
-
-              <button
-                className="lang-caret"
-                type="button"
-                disabled={isListening}
-                aria-label="Change recording language"
-                onClick={() => setLangMenuOpen((open) => !open)}
-              >
-                ▾
-              </button>
-
-              {langMenuOpen && (
-                <div className="lang-menu">
-                  {languages.map((lang) => (
-                    <button
-                      key={lang.code}
-                      className={
-                        lang.code === language ? "lang-menu-item active" : "lang-menu-item"
-                      }
-                      onClick={() => {
-                        setLanguage(lang.code);
-                        setLangMenuOpen(false);
-                      }}
-                    >
-                      {lang.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className={isListening ? "rec-indicator active" : "rec-indicator"}>
-              <span className="rec-dot" />
-              {isListening ? (pending > 0 ? "Transcribing…" : "Recording") : "Idle"}
-            </div>
-
-            {isListening && <span className="rec-timer">{elapsed.toFixed(2)}s</span>}
-
-            <div className="level-meter">
-              <div
-                className="level-fill"
-                style={{ width: `${Math.min(level * 400, 100)}%` }}
-              />
-            </div>
+          <div className="brand">
+            <SettingsPanel
+              silenceDurationMs={silenceDurationMs}
+              onSilenceDurationChange={handleSilenceDurationChange}
+            />
+            <h1>phonemizer.live</h1>
           </div>
         </div>
 
@@ -242,7 +303,9 @@ function App() {
             <p className="empty">Nothing yet — press New Recording and talk.</p>
           )}
         </div>
-      </main>
+        </main>
+      </div>
+      <Footer />
     </div>
   );
 }

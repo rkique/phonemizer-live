@@ -1,4 +1,5 @@
 import io
+import re
 import subprocess
 from functools import lru_cache
 from pathlib import Path
@@ -8,6 +9,7 @@ from faster_whisper import WhisperModel
 from PIL import Image
 from phonemizer import phonemize
 from phonemizer.backend.espeak.wrapper import EspeakWrapper
+from pypinyin import Style, pinyin as _pinyin
 from scipy.io import wavfile
 from scipy.signal import spectrogram as sp_spectrogram
 
@@ -37,15 +39,30 @@ _WHISPER_LANGUAGE_BY_CODE = {lang["code"]: lang["whisper"] for lang in SUPPORTED
 def whisper_language_for(language_code: str) -> str:
     return _WHISPER_LANGUAGE_BY_CODE.get(language_code, "en")
 
-# English diphthongs, affricates, and r-colored vowels espeak-ng emits as
-# adjacent symbols but that phonetically act as a single unit.
+# English diphthongs, affricates, and r-colored vowels, plus Mandarin
+# affricates/aspirated stops and common finals, that espeak-ng emits as
+# adjacent symbols but that phonetically act as a single unit. Bare-letter
+# Mandarin sequences (ts, tɕh, ɑu, iɛ, ...) never occur in this app's English
+# output, so sharing one list across languages is safe.
 _CLUSTERS = sorted(
-    ["dʒ", "tʃ", "aʊ", "aɪ", "eɪ", "oʊ", "ɔɪ", "ɪɹ", "ɛɹ", "ʊɹ", "ɑɹ", "ɔɹ", "ɜɹ"],
+    [
+        "dʒ", "tʃ", "aʊ", "aɪ", "eɪ", "oʊ", "ɔɪ", "ɪɹ", "ɛɹ", "ʊɹ", "ɑɹ", "ɔɹ", "ɜɹ",
+        # Mandarin affricates and aspirated stops (espeak-ng's cmn voice
+        # marks aspiration with a plain "h", not "ʰ").
+        "tʂʰ", "tɕʰ", "tsʰ", "tʂh", "tɕh", "tsh", "tʂ", "tɕ", "ts",
+        "pʰ", "tʰ", "kʰ", "ph", "th", "kh",
+        # Common Mandarin finals (rimes) that behave like a single diphthong.
+        "ɑu", "ai", "ei", "ou", "iɛ", "uo",
+    ],
     key=len,
     reverse=True,
 )
 _PREFIX_MARKS = {"ˈ", "ˌ"}
 _SUFFIX_MARKS = {"ː"}
+# espeak-ng's cmn voice appends tone numbers directly to syllables and marks
+# syllable boundaries with ".". Neither is a sound, so both are dropped
+# rather than shown as their own phoneme unit.
+_SKIP_CHARS = set("0123456789.")
 
 # General American English phoneme inventory, as emitted by espeak-ng's
 # en-us voice (after stress-mark stripping via normalize_phoneme).
@@ -132,7 +149,16 @@ def transcribe_audio_with_words(
     duration = info.duration if info and info.duration else (words[-1]["end"] if words else 0.0)
     return text, words, duration
 
+
+def word_to_pinyin(word: str) -> str:
+    syllables = _pinyin(word, style=Style.TONE, errors="ignore")
+    return " ".join(s[0] for s in syllables if s)
+
+
 #text to IPA.
+_LANG_SWITCH_TAG = re.compile(r"\([a-z]{2,3}(?:-[a-z0-9]+)?\)")
+
+
 def text_to_ipa(text: str, language: str = DEFAULT_LANGUAGE) -> str:
     if not text:
         return ""
@@ -144,7 +170,11 @@ def text_to_ipa(text: str, language: str = DEFAULT_LANGUAGE) -> str:
         strip=True,
         preserve_punctuation=False,
     )
-    return result[0] if result else ""
+    ipa = result[0] if result else ""
+    # espeak-ng inserts inline "(en)"/"(cmn)"/... language-switch markers
+    # when it detects mixed-script or unrecognized text — metadata, not
+    # phonemes, so they shouldn't leak into the unit split.
+    return _LANG_SWITCH_TAG.sub("", ipa)
 
 
 def split_ipa_units(ipa: str) -> list[str]:
@@ -158,7 +188,7 @@ def split_ipa_units(ipa: str) -> list[str]:
             prefix += ch
             i += 1
             continue
-        if ch == " ":
+        if ch == " " or ch in _SKIP_CHARS:
             i += 1
             continue
         token = ch
