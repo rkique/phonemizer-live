@@ -1,0 +1,16 @@
+# Python
+backend/venv/
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+
+# Backend runtime data (SQLite DB + recorded audio/spectrograms)
+backend/data/
+backend/server.log
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Editor/OS
+.DS_Store
