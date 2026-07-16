@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 import zipfile
@@ -121,7 +122,13 @@ async def transcribe(audio: UploadFile, language: str = Form(DEFAULT_LANGUAGE)) 
         media_id = row["id"]
 
         final_wav = AUDIO_DIR / f"{media_id}.wav"
-        wav_path.replace(final_wav)
+        # Path.replace() is a bare os.rename(), which can't cross a
+        # filesystem boundary — tmp_dir lives on the container's own
+        # filesystem while AUDIO_DIR is a separate mounted volume in
+        # production, so this raises "Invalid cross-device link" there
+        # (never showed up locally, where both paths share one filesystem).
+        # shutil.move() falls back to copy+delete when os.rename fails.
+        shutil.move(str(wav_path), str(final_wav))
         png_path = AUDIO_DIR / f"{media_id}.png"
         render_spectrogram(str(final_wav), str(png_path))
 
