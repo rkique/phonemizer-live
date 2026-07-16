@@ -58,9 +58,10 @@ frontend/   React + Vite (port 5174)
 backend/    FastAPI + SQLite (port 8000)
 ```
 
-The frontend talks to the backend over plain HTTP at a hardcoded
-`http://127.0.0.1:8000` (`API_BASE` in `frontend/src/App.jsx`) — there is no
-env-based config yet, so if you move the backend, update that constant.
+The frontend talks to the backend via `API_BASE` in `frontend/src/App.jsx`,
+which reads `import.meta.env.VITE_API_BASE` and falls back to
+`http://127.0.0.1:8000` for local dev. Production builds pick up
+`frontend/.env.production` (`https://api.phonemizer.live`) automatically.
 
 ## Prerequisites (macOS)
 
@@ -108,6 +109,14 @@ Open the frontend URL, click **New Recording**, grant microphone access, and
 speak. The backend's CORS config (`backend/main.py`) currently only allows
 `http://localhost:5173` and `http://localhost:5174` — add any other origin
 you serve the frontend from before it will work cross-origin.
+
+## Production deployment
+
+Dockerized (`backend/Dockerfile`, `frontend/Dockerfile`), orchestrated via
+`docker-compose.yml` with Caddy handling HTTPS for `phonemizer.live` +
+`api.phonemizer.live`, and deployed automatically by
+`.github/workflows/deploy.yml` on push to `main`. See **[DEPLOYMENT.md](DEPLOYMENT.md)**
+for the one-time server setup and GitHub secrets this needs.
 
 ## Known limitations
 

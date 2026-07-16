@@ -1,0 +1,13 @@
+# Uncomment and set a real address so Let's Encrypt can email you about
+# certificate problems (not required — Caddy works fine without it).
+# {
+# 	email you@example.com
+# }
+
+phonemizer.live, www.phonemizer.live {
+	reverse_proxy frontend:80
+}
+
+api.phonemizer.live {
+	reverse_proxy backend:8000
+}

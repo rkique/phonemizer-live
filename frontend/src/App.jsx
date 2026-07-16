@@ -12,7 +12,7 @@ import SettingsPanel from "./SettingsPanel";
 import Footer from "./Footer";
 import "./App.css";
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 const EDITABLE_TAGS = new Set(["INPUT", "TEXTAREA"]);
 const SILENCE_DURATION_STORAGE_KEY = "phonemizer-silence-duration-ms";
 

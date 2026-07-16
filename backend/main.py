@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import sqlite3
 import tempfile
 import zipfile
@@ -35,9 +36,20 @@ AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Sonority IPA Transcription")
 
+# Local dev origins always allowed; production domain(s) come from the
+# ALLOWED_ORIGINS env var (comma-separated) so this doesn't need a code
+# change per deployment target.
+_DEFAULT_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "https://phonemizer.live",
+    "https://www.phonemizer.live",
+]
+_extra_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_origins=_DEFAULT_ORIGINS + _extra_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -1,0 +1,38 @@
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+    volumes:
+      - backend_data:/app/data
+    expose:
+      - "8000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  # Named volume, not a bind mount — persists across `docker compose up
+  # --build` redeploys since it's keyed by volume name, not container
+  # lifecycle. Holds the SQLite DB plus every recorded WAV/PNG.
+  backend_data:
+  caddy_data:
+  caddy_config:
