@@ -34,6 +34,7 @@ _LANGUAGE_LABELS = {lang["code"]: lang["label"] for lang in SUPPORTED_LANGUAGES}
 
 AUDIO_DIR = Path(__file__).parent / "data" / "audio"
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+SAMPLE_AUDIO_DIR = Path(__file__).parent / "sample_audio"
 
 app = FastAPI(title="Sonority IPA Transcription")
 
@@ -89,6 +90,65 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# Shared by /transcribe and startup seeding: takes a WAV file, runs the full
+# pipeline, and stores it. Consumes (moves) wav_path — callers that want to
+# keep their original file should pass in a copy.
+def _ingest_wav(wav_path: Path, language: str) -> sqlite3.Row | None:
+    text, words, duration = transcribe_audio_with_words(
+        str(wav_path), whisper_language_for(language)
+    )
+    if not text:
+        return None
+
+    if language == "cmn":
+        for w in words:
+            w["pinyin"] = word_to_pinyin(w["word"])
+
+    units = build_units(words, duration, language)
+    ipa = units_to_ipa(units)
+
+    row = storage.insert_transcript(
+        text, ipa, duration, json.dumps(units), json.dumps(words), language
+    )
+    media_id = row["id"]
+
+    final_wav = AUDIO_DIR / f"{media_id}.wav"
+    # Path.replace() is a bare os.rename(), which can't cross a filesystem
+    # boundary — tmp_dir lives on the container's own filesystem while
+    # AUDIO_DIR is a separate mounted volume in production, so this raises
+    # "Invalid cross-device link" there (never showed up locally, where both
+    # paths share one filesystem). shutil.move() falls back to copy+delete
+    # when os.rename fails.
+    shutil.move(str(wav_path), str(final_wav))
+    png_path = AUDIO_DIR / f"{media_id}.png"
+    render_spectrogram(str(final_wav), str(png_path))
+
+    storage.update_media_paths(media_id, str(final_wav), str(png_path))
+    return storage.get_transcript(media_id)
+
+
+# On a completely fresh database, seed a handful of real (CC BY 4.0
+# LibriSpeech) recordings instead of shipping an empty sidebar — see
+# sample_audio/ATTRIBUTION.md for provenance. Never runs again once there's
+# any transcript at all, including user-created ones.
+def _seed_sample_recordings() -> None:
+    if storage.list_transcripts(limit=1):
+        return
+    if not SAMPLE_AUDIO_DIR.is_dir():
+        return
+    for wav_file in sorted(SAMPLE_AUDIO_DIR.glob("*.wav")):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_wav = Path(tmp_dir) / wav_file.name
+            shutil.copy(wav_file, tmp_wav)
+            try:
+                _ingest_wav(tmp_wav, DEFAULT_LANGUAGE)
+            except Exception as e:
+                print(f"seed: failed to ingest {wav_file.name}: {e}")
+
+
+_seed_sample_recordings()
+
+
 #Wraps transcribe_audio_with_words from transcribe
 @app.post("/transcribe")
 async def transcribe(audio: UploadFile, language: str = Form(DEFAULT_LANGUAGE)) -> dict:
@@ -103,37 +163,9 @@ async def transcribe(audio: UploadFile, language: str = Form(DEFAULT_LANGUAGE)) 
         wav_path = Path(tmp_dir) / "clip.wav"
         convert_to_wav(str(src_path), str(wav_path))
 
-        text, words, duration = transcribe_audio_with_words(
-            str(wav_path), whisper_language_for(language)
-        )
-        if not text:
+        row = _ingest_wav(wav_path, language)
+        if row is None:
             return {"id": None, "text": "", "ipa": "", "units": [], "words": [], "duration": 0}
-
-        if language == "cmn":
-            for w in words:
-                w["pinyin"] = word_to_pinyin(w["word"])
-
-        units = build_units(words, duration, language)
-        ipa = units_to_ipa(units)
-
-        row = storage.insert_transcript(
-            text, ipa, duration, json.dumps(units), json.dumps(words), language
-        )
-        media_id = row["id"]
-
-        final_wav = AUDIO_DIR / f"{media_id}.wav"
-        # Path.replace() is a bare os.rename(), which can't cross a
-        # filesystem boundary — tmp_dir lives on the container's own
-        # filesystem while AUDIO_DIR is a separate mounted volume in
-        # production, so this raises "Invalid cross-device link" there
-        # (never showed up locally, where both paths share one filesystem).
-        # shutil.move() falls back to copy+delete when os.rename fails.
-        shutil.move(str(wav_path), str(final_wav))
-        png_path = AUDIO_DIR / f"{media_id}.png"
-        render_spectrogram(str(final_wav), str(png_path))
-
-        storage.update_media_paths(media_id, str(final_wav), str(png_path))
-        row = storage.get_transcript(media_id)
 
     return _serialize(row)
 
