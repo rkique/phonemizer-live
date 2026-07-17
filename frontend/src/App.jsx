@@ -10,11 +10,13 @@ import PhonemeInventory from "./PhonemeInventory";
 import LiveWaveform from "./LiveWaveform";
 import SettingsPanel from "./SettingsPanel";
 import Footer from "./Footer";
+import { getSessionId } from "./session";
 import "./App.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 const EDITABLE_TAGS = new Set(["INPUT", "TEXTAREA"]);
 const SILENCE_DURATION_STORAGE_KEY = "phonemizer-silence-duration-ms";
+const SESSION_ID = getSessionId();
 
 function App() {
   //array of phoneme transcripts
@@ -42,14 +44,14 @@ function App() {
   };
 
   const loadPhonemes = useCallback(() => {
-    fetch(`${API_BASE}/phonemes`)
+    fetch(`${API_BASE}/phonemes`, { headers: { "X-Session-Id": SESSION_ID } })
       .then((r) => r.json())
       .then((data) => setInventory(data.inventory ?? []))
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    fetch(`${API_BASE}/history`)
+    fetch(`${API_BASE}/history`, { headers: { "X-Session-Id": SESSION_ID } })
       .then((r) => r.json())
       .then((rows) => {
         const ordered = rows.slice().reverse();
@@ -77,6 +79,7 @@ function App() {
         form.append("language", language);
         const res = await fetch(`${API_BASE}/transcribe`, {
           method: "POST",
+          headers: { "X-Session-Id": SESSION_ID },
           body: form,
         });
         if (!res.ok) throw new Error(`status ${res.status}`);
@@ -130,7 +133,10 @@ function App() {
       const idSet = new Set(ids);
       await Promise.all(
         ids.map((id) =>
-          fetch(`${API_BASE}/transcripts/${id}`, { method: "DELETE" }).catch(() => {})
+          fetch(`${API_BASE}/transcripts/${id}`, {
+            method: "DELETE",
+            headers: { "X-Session-Id": SESSION_ID },
+          }).catch(() => {})
         )
       );
       setTranscripts((prev) => {
@@ -153,7 +159,7 @@ function App() {
 
   const exportIds = useCallback((ids) => {
     if (ids.length === 0) return;
-    window.location.href = `${API_BASE}/export/bulk?ids=${ids.join(",")}`;
+    window.location.href = `${API_BASE}/export/bulk?ids=${ids.join(",")}&session_id=${SESSION_ID}`;
   }, []);
 
   useEffect(() => {
@@ -292,11 +298,13 @@ function App() {
               inventory={inventory}
               onExampleClick={jumpToExample}
               apiBase={API_BASE}
+              sessionId={SESSION_ID}
             />
           ) : selected ? (
             <SpectrogramView
               transcript={selected}
               apiBase={API_BASE}
+              sessionId={SESSION_ID}
               seekRequest={seekRequest?.transcriptId === selected.id ? seekRequest : null}
             />
           ) : (

@@ -27,7 +27,7 @@ function groupUnitsByWord(units) {
   return groups;
 }
 
-function SpectrogramView({ transcript, apiBase, seekRequest }) {
+function SpectrogramView({ transcript, apiBase, sessionId, seekRequest }) {
   const containerRef = useRef(null);
   const audioRef = useRef(null);
   //wavesurfer timestamp
@@ -263,9 +263,13 @@ function SpectrogramView({ transcript, apiBase, seekRequest }) {
             </span>
           )}
           <div className="export-actions">
-            <a href={`${apiBase}/transcripts/${transcript.id}/export.txt`}>Export IPA</a>
+            <a href={`${apiBase}/transcripts/${transcript.id}/export.txt?session_id=${sessionId}`}>
+              Export IPA
+            </a>
             {audioUrl && (
-              <a href={`${apiBase}/transcripts/${transcript.id}/export.wav`}>Export Audio</a>
+              <a href={`${apiBase}/transcripts/${transcript.id}/export.wav?session_id=${sessionId}`}>
+                Export Audio
+              </a>
             )}
           </div>
         </div>

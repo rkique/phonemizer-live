@@ -58,7 +58,7 @@ const VOWEL_CELLS = [
   { row: "Open", col: "Back", symbols: ["ɑː", "ɑɹ"] },
 ];
 
-function PhonemeChart({ title, cols, rows, cells, bySymbol, expanded, onToggle, onExampleClick, apiBase }) {
+function PhonemeChart({ title, cols, rows, cells, bySymbol, expanded, onToggle, onExampleClick, apiBase, sessionId }) {
   return (
     <div className="chart-section">
       <h3>{title}</h3>
@@ -107,6 +107,7 @@ function PhonemeChart({ title, cols, rows, cells, bySymbol, expanded, onToggle, 
                   onToggle={onToggle}
                   onExampleClick={onExampleClick}
                   apiBase={apiBase}
+                  sessionId={sessionId}
                 />
               );
             })}
@@ -117,7 +118,7 @@ function PhonemeChart({ title, cols, rows, cells, bySymbol, expanded, onToggle, 
   );
 }
 
-function PhonemeCard({ entry, expanded, onToggle, onExampleClick, apiBase }) {
+function PhonemeCard({ entry, expanded, onToggle, onExampleClick, apiBase, sessionId }) {
   const buttonRef = useRef(null);
   const [popoverPos, setPopoverPos] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -171,7 +172,7 @@ function PhonemeCard({ entry, expanded, onToggle, onExampleClick, apiBase }) {
               >
                 <img
                   className="phoneme-thumb"
-                  src={`${apiBase}/media/${ex.transcript_id}/segment.png?start=${ex.start}&end=${ex.end}`}
+                  src={`${apiBase}/media/${ex.transcript_id}/segment.png?start=${ex.start}&end=${ex.end}&session_id=${sessionId}`}
                   alt=""
                 />
                 <span>{ex.word || `${ex.start.toFixed(2)}s`}</span>
@@ -221,7 +222,7 @@ function PhonemeCard({ entry, expanded, onToggle, onExampleClick, apiBase }) {
                   >
                     <img
                       className="phoneme-thumb"
-                      src={`${apiBase}/media/${ex.transcript_id}/segment.png?start=${ex.start}&end=${ex.end}`}
+                      src={`${apiBase}/media/${ex.transcript_id}/segment.png?start=${ex.start}&end=${ex.end}&session_id=${sessionId}`}
                       alt=""
                     />
                     <span>{ex.word || `${ex.start.toFixed(2)}s`}</span>
@@ -236,7 +237,7 @@ function PhonemeCard({ entry, expanded, onToggle, onExampleClick, apiBase }) {
   );
 }
 
-function PhonemeInventory({ inventory, onExampleClick, apiBase }) {
+function PhonemeInventory({ inventory, onExampleClick, apiBase, sessionId }) {
   const [expanded, setExpanded] = useState(null);
   const toggle = (symbol) => setExpanded((prev) => (prev === symbol ? null : symbol));
 
@@ -248,7 +249,7 @@ function PhonemeInventory({ inventory, onExampleClick, apiBase }) {
   ]);
   const leftover = inventory.filter((e) => !placedSymbols.has(e.symbol));
 
-  const chartProps = { bySymbol, expanded, onToggle: toggle, onExampleClick, apiBase };
+  const chartProps = { bySymbol, expanded, onToggle: toggle, onExampleClick, apiBase, sessionId };
 
   return (
     <div className="inventory">
@@ -281,6 +282,7 @@ function PhonemeInventory({ inventory, onExampleClick, apiBase }) {
               onToggle={toggle}
               onExampleClick={onExampleClick}
               apiBase={apiBase}
+              sessionId={sessionId}
             />
           ))}
         </div>

@@ -25,10 +25,15 @@ def init_db() -> None:
             "spectrogram_path": "ALTER TABLE transcripts ADD COLUMN spectrogram_path TEXT",
             "words_json": "ALTER TABLE transcripts ADD COLUMN words_json TEXT",
             "language": "ALTER TABLE transcripts ADD COLUMN language TEXT NOT NULL DEFAULT 'en-us'",
+            "session_id": "ALTER TABLE transcripts ADD COLUMN session_id TEXT NOT NULL DEFAULT ''",
+            "is_sample": "ALTER TABLE transcripts ADD COLUMN is_sample INTEGER NOT NULL DEFAULT 0",
         }
         for column, ddl in migrations.items():
             if column not in existing:
                 conn.execute(ddl)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transcripts_session_id ON transcripts (session_id)"
+        )
 
 
 @contextmanager
@@ -43,13 +48,21 @@ def connect():
 
 
 def insert_transcript(
-    text: str, ipa: str, duration: float, units_json: str, words_json: str, language: str
+    text: str,
+    ipa: str,
+    duration: float,
+    units_json: str,
+    words_json: str,
+    language: str,
+    session_id: str,
+    is_sample: bool = False,
 ) -> sqlite3.Row:
     with connect() as conn:
         cur = conn.execute(
-            "INSERT INTO transcripts (text, ipa, duration, units_json, words_json, language) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (text, ipa, duration, units_json, words_json, language),
+            "INSERT INTO transcripts "
+            "(text, ipa, duration, units_json, words_json, language, session_id, is_sample) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (text, ipa, duration, units_json, words_json, language, session_id, int(is_sample)),
         )
         return conn.execute(
             "SELECT * FROM transcripts WHERE id = ?", (cur.lastrowid,)
@@ -71,10 +84,11 @@ def get_transcript(transcript_id: int) -> sqlite3.Row:
         ).fetchone()
 
 
-def list_transcripts(limit: int = 200) -> list[sqlite3.Row]:
+def list_transcripts(session_id: str, limit: int = 200) -> list[sqlite3.Row]:
     with connect() as conn:
         return conn.execute(
-            "SELECT * FROM transcripts ORDER BY id DESC LIMIT ?", (limit,)
+            "SELECT * FROM transcripts WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+            (session_id, limit),
         ).fetchall()
 
 

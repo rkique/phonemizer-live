@@ -152,7 +152,9 @@ function Sidebar({
                 onClick={() => onSelect(t.id)}
                 onKeyDown={(e) => e.key === "Enter" && onSelect(t.id)}
               >
-                <div className="sidebar-item-ipa">{t.ipa}</div>
+                <div className={t.is_sample ? "sidebar-item-ipa sample" : "sidebar-item-ipa"}>
+                  {t.ipa}
+                </div>
                 <div className="sidebar-item-meta">
                   <span>{t.duration ? `${t.duration.toFixed(1)}s` : ""}</span>
                   <span>{formatTime(t.created_at)}</span>

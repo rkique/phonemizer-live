@@ -488,6 +488,11 @@
   text-overflow: ellipsis;
 }
 
+.sidebar-item-ipa.sample {
+  font-style: italic;
+  color: var(--text);
+}
+
 .sidebar-item-meta {
   display: flex;
   justify-content: space-between;
