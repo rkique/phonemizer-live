@@ -1,6 +1,9 @@
 # Phonemizer Live
 
-
+[![Build and deploy](https://github.com/rkique/phonemizer-live/actions/workflows/deploy.yml/badge.svg)](https://github.com/rkique/phonemizer-live/actions/workflows/deploy.yml)
+[![Website](https://img.shields.io/website?url=https%3A%2F%2Fphonemizer.live)](https://phonemizer.live)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
+![Node 18+](https://img.shields.io/badge/node-18%2B-blue)
 
 Live IPA (International Phonetic Alphabet) transcription service. You can record speech in the browser, and get back a word-level transcript, a per-phoneme IPA breakdown aligned to a spectrogram, and a running inventory of each phoneme as identified by `phonemizer`.
 
