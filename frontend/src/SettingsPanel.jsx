@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { resetToAnonymousSession } from "./session";
 
 const STORAGE_KEY = "phonemizer-accent-color";
 const VIEWPORT_MARGIN = 12;
@@ -17,10 +18,11 @@ function applyAccent(hex) {
   document.documentElement.style.setProperty("--accent-rgb", hexToRgbString(hex));
 }
 
-function SettingsPanel({ silenceDurationMs, onSilenceDurationChange }) {
+function SettingsPanel({ silenceDurationMs, onSilenceDurationChange, apiBase, sessionId }) {
   const [open, setOpen] = useState(false);
   const [color, setColor] = useState("#ffc65c");
   const [pos, setPos] = useState(null);
+  const [driveStatus, setDriveStatus] = useState(null); // { linked, email } | null while loading
   const gearRef = useRef(null);
   const panelRef = useRef(null);
 
@@ -36,6 +38,14 @@ function SettingsPanel({ silenceDurationMs, onSilenceDurationChange }) {
       if (defaultAccent) setColor(defaultAccent);
     }
   }, []);
+
+  useEffect(() => {
+    if (!open || !apiBase) return;
+    fetch(`${apiBase}/auth/me`, { headers: { "X-Session-Id": sessionId } })
+      .then((r) => r.json())
+      .then(setDriveStatus)
+      .catch(() => setDriveStatus({ linked: false, email: null }));
+  }, [open, apiBase, sessionId]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -79,7 +89,7 @@ function SettingsPanel({ silenceDurationMs, onSilenceDurationChange }) {
     top = Math.max(VIEWPORT_MARGIN, top);
 
     setPos({ top, left });
-  }, [open]);
+  }, [open, driveStatus]);
 
   const handleChange = (e) => {
     const hex = e.target.value;
@@ -96,6 +106,14 @@ function SettingsPanel({ silenceDurationMs, onSilenceDurationChange }) {
       .getPropertyValue("--accent")
       .trim();
     setColor(defaultAccent);
+  };
+
+  const handleDisconnect = () => {
+    resetToAnonymousSession();
+    // SESSION_ID in App.jsx is captured once at module load as a plain
+    // constant (not React state) — a full reload is the simplest way to
+    // make the rest of the app pick up the new anonymous identity.
+    window.location.reload();
   };
 
   return (
@@ -152,6 +170,32 @@ function SettingsPanel({ silenceDurationMs, onSilenceDurationChange }) {
             <p className="settings-panel-hint">
               How long a pause must last before a recording auto-splits into a
               new segment.
+            </p>
+
+            <label className="settings-panel-label">Google Drive</label>
+            <div className="settings-panel-row">
+              {driveStatus === null ? (
+                <span className="settings-panel-hint">Checking…</span>
+              ) : driveStatus.linked ? (
+                <>
+                  <span className="settings-drive-email">{driveStatus.email}</span>
+                  <button className="settings-reset-btn" onClick={handleDisconnect}>
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <a
+                  className="settings-connect-btn"
+                  href={`${apiBase}/auth/google/login?session_id=${sessionId}`}
+                >
+                  Connect Google Drive
+                </a>
+              )}
+            </div>
+            <p className="settings-panel-hint">
+              {driveStatus?.linked
+                ? "New recordings are saved to your Drive instead of this server."
+                : "Sign in to sync recordings to your own Google Drive instead of this server."}
             </p>
           </div>,
           document.body

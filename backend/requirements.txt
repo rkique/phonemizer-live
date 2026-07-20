@@ -7,3 +7,7 @@ requests==2.34.2
 scipy==1.15.3
 Pillow==12.3.0
 pypinyin==0.55.0
+google-auth==2.56.0
+google-auth-oauthlib==1.4.0
+oauthlib==3.3.1
+requests-oauthlib==2.0.0

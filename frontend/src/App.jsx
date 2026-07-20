@@ -5,11 +5,12 @@ import SpectrogramView from "./SpectrogramView";
 import PhonemeInventory from "./PhonemeInventory";
 // Temporarily disabled while isolating a recording-pipeline bug — untested,
 // not implicated yet, just ruled out of the picture for now.
-// import MobileNotice from "./MobileNotice";
 // import MicPermissionModal from "./MicPermissionModal";
 import LiveWaveform from "./LiveWaveform";
 import SettingsPanel from "./SettingsPanel";
 import Footer from "./Footer";
+import MobileApp from "./MobileApp";
+import { useIsMobile } from "./useIsMobile";
 import { getSessionId } from "./session";
 import "./App.css";
 
@@ -19,6 +20,7 @@ const SILENCE_DURATION_STORAGE_KEY = "phonemizer-silence-duration-ms";
 const SESSION_ID = getSessionId();
 
 function App() {
+  const isMobile = useIsMobile();
   //array of phoneme transcripts
   const [transcripts, setTranscripts] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -198,9 +200,31 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeydown);
   });
 
+  if (isMobile) {
+    return (
+      <div className="app-shell">
+        <MobileApp
+          transcripts={transcripts}
+          pending={pending}
+          isListening={isListening}
+          toggle={toggle}
+          level={level}
+          elapsed={elapsed}
+          error={error}
+          language={language}
+          languages={languages}
+          onLanguageChange={setLanguage}
+          onDelete={handleDelete}
+          apiBase={API_BASE}
+          sessionId={SESSION_ID}
+        />
+        <Footer />
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
-      {/* <MobileNotice /> */}
       {/* <MicPermissionModal /> */}
       <div className="app">
         <Sidebar
@@ -285,6 +309,8 @@ function App() {
             <SettingsPanel
               silenceDurationMs={silenceDurationMs}
               onSilenceDurationChange={handleSilenceDurationChange}
+              apiBase={API_BASE}
+              sessionId={SESSION_ID}
             />
             <h1>phonemizer.live</h1>
           </div>

@@ -17,3 +17,7 @@ frontend/dist/
 
 phonemizer_deploy_key
 phonemizer_deploy_key.pub
+
+# Server-side secrets (Google OAuth client id/secret, etc.) — loaded by
+# `docker compose` from the deploy directory, never committed.
+.env

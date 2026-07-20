@@ -1,6 +1,9 @@
 import io
+import json
+import os
 import re
 import subprocess
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 
@@ -148,6 +151,154 @@ def transcribe_audio_with_words(
     text = " ".join(text_parts).strip();
     duration = info.duration if info and info.duration else (words[-1]["end"] if words else 0.0)
     return text, words, duration
+
+
+#Forced alignment (Montreal Forced Aligner), English only. MFA's acoustic
+#model/dictionary use a modified IPA phone set (palatalization, aspiration,
+#length variants, shifted vowels) rather than espeak-ng's, so every phone is
+#normalized to the same canonical symbols CANONICAL_INVENTORY already uses
+#before being handed off in build_units()'s output shape.
+MFA_BIN = os.environ.get("MFA_BIN", "mfa")
+MFA_ACOUSTIC_MODEL = os.environ.get("MFA_ACOUSTIC_MODEL", "english_mfa")
+MFA_DICTIONARY = os.environ.get("MFA_DICTIONARY", "english_mfa")
+MFA_G2P_MODEL = os.environ.get("MFA_G2P_MODEL", "english_us_mfa")
+
+_MFA_PHONE_MAP = {
+    # Stops
+    "p": "p", "pʷ": "p", "pʰ": "p", "pʲ": "p", "kp": "p",
+    "b": "b", "bʲ": "b", "ɡb": "b",
+    "t": "t", "t̪": "t", "tʷ": "t", "tʰ": "t", "tʲ": "t",
+    "ʈ": "t", "ʈʲ": "t", "ʈʷ": "t", "ʔ": "t", "ɾ": "t", "ɾʲ": "t",
+    "d": "d", "d̪": "d", "dʲ": "d", "ɖ": "d", "ɖʲ": "d",
+    "k": "k", "kʷ": "k", "kʰ": "k", "c": "k", "cʷ": "k", "cʰ": "k",
+    "ɡ": "ɡ", "ɡʷ": "ɡ", "ɟ": "ɡ", "ɟʷ": "ɡ",
+    # Affricates
+    "tʃ": "tʃ", "dʒ": "dʒ",
+    # Fricatives
+    "f": "f", "fʷ": "f", "fʲ": "f",
+    "v": "v", "vʷ": "v", "vʲ": "v", "ʋ": "v",
+    "θ": "θ", "ð": "ð",
+    "s": "s", "z": "z", "ʃ": "ʃ", "ʒ": "ʒ",
+    "h": "h", "ç": "h",
+    # Nasals
+    "m": "m", "m̩": "m", "mʲ": "m", "ɱ": "m",
+    "n": "n", "n̩": "n", "ɲ": "n", "ɾ̃": "n",
+    "ŋ": "ŋ",
+    # Liquids / glides
+    "l": "l", "ɫ": "l", "ɫ̩": "l", "ʎ": "l",
+    "ɹ": "ɹ", "j": "j", "w": "w",
+    # Vowels (MFA's tense/lax pairs and shifted symbols collapsed onto the
+    # single symbol CANONICAL_INVENTORY already displays for each)
+    "ɪ": "ɪ", "i": "ɪ", "iː": "iː",
+    "ɛ": "ɛ", "ɛː": "ɛ", "e": "ɛ", "eː": "eɪ",
+    "æ": "æ", "a": "ʌ", "aː": "æ",
+    "ɑ": "ɑː", "ɑː": "ɑː",
+    "ɒ": "ɔː", "ɒː": "ɔː", "ɔ": "ɔː",
+    "ʊ": "ʊ", "ʉ": "uː", "ʉː": "uː", "uː": "uː", "u": "uː",
+    "ʌ": "ʌ", "ɐ": "ʌ",
+    "ə": "ə", "ɚ": "ɚ",
+    "ɜː": "ɜɹ", "ɜ": "ɜɹ", "ɝ": "ɜɹ",
+    # Diphthongs (already single MFA symbols)
+    "aj": "aɪ", "aw": "aʊ", "ej": "eɪ", "ɔj": "ɔɪ",
+    "ow": "oʊ", "əw": "oʊ", "o": "oʊ", "oː": "oʊ",
+}
+
+# Adjacent (vowel, ɹ) phone pairs that espeak-ng (and this app's phoneme
+# chart) treat as a single r-colored vowel unit, but MFA aligns as two
+# separate phones (except the -er suffix, which MFA already gives as a bare
+# ə/ɚ) — merged back into one unit after mapping.
+_RHOTIC_MERGE = {
+    "ɪ": "ɪɹ", "ɛ": "ɛɹ", "ʊ": "ʊɹ", "ɑː": "ɑɹ", "ɔː": "ɔɹ", "ə": "ɚ",
+}
+
+_MFA_SILENCE = {"sil", "sp", "spn", "<eps>"}
+
+
+def _map_mfa_phone(phone: str) -> str:
+    if phone in _MFA_PHONE_MAP:
+        return _MFA_PHONE_MAP[phone]
+    # Unlisted phone (e.g. a rare loanword symbol): strip combining
+    # diacritics and retry before falling back to the raw symbol.
+    stripped = phone.rstrip("ʷʲʰː").replace("̪", "").replace("̃", "").replace("̩", "")
+    return _MFA_PHONE_MAP.get(stripped, stripped)
+
+
+def align_phonemes(wav_path: str, text: str) -> list[dict] | None:
+    """Force-align `text` against `wav_path` with MFA and return phoneme
+    units in the same shape build_units() produces. Returns None on any
+    failure so callers fall back to build_units()'s linear interpolation."""
+    if not text.strip():
+        return None
+    # MFA's own third-party check (openfst/kaldi binaries like fstcompile)
+    # looks these up on PATH, which normally comes from `conda activate` —
+    # set it explicitly so alignment works regardless of the parent
+    # process's shell environment.
+    mfa_bin_dir = str(Path(MFA_BIN).resolve().parent) if os.sep in MFA_BIN else None
+    env = os.environ.copy()
+    if mfa_bin_dir:
+        env["PATH"] = mfa_bin_dir + os.pathsep + env.get("PATH", "")
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        text_path = Path(tmp_dir) / "clip.txt"
+        text_path.write_text(text)
+        output_path = Path(tmp_dir) / "clip.json"
+        try:
+            subprocess.run(
+                [
+                    MFA_BIN, "align_one", str(wav_path), str(text_path),
+                    MFA_DICTIONARY, MFA_ACOUSTIC_MODEL, str(output_path),
+                    "--output_format", "json", "--overwrite", "--clean",
+                    "--g2p_model_path", MFA_G2P_MODEL,
+                ],
+                check=True, capture_output=True, timeout=30, env=env,
+            )
+            data = json.loads(output_path.read_text())
+        except (subprocess.SubprocessError, OSError, ValueError, json.JSONDecodeError):
+            return None
+
+    tiers = data.get("tiers", {})
+    word_intervals = [
+        (s, e, w) for s, e, w in tiers.get("words", {}).get("entries", [])
+        if w and w != "<eps>"
+    ]
+    raw_phones = tiers.get("phones", {}).get("entries", [])
+    if not raw_phones:
+        return None
+
+    mapped = [
+        (_map_mfa_phone(phone), start, end)
+        for start, end, phone in raw_phones
+        if phone not in _MFA_SILENCE
+    ]
+
+    merged: list[tuple[str, float, float]] = []
+    i = 0
+    while i < len(mapped):
+        ch, start, end = mapped[i]
+        if i + 1 < len(mapped) and mapped[i + 1][0] == "ɹ" and ch in _RHOTIC_MERGE:
+            merged.append((_RHOTIC_MERGE[ch], start, mapped[i + 1][2]))
+            i += 2
+            continue
+        merged.append((ch, start, end))
+        i += 1
+
+    units: list[dict] = []
+    prev_end = 0.0
+    current_word = None
+    for ch, start, end in merged:
+        if start - prev_end > 0.02:
+            units.append({"ch": "", "start": prev_end, "end": start, "kind": "gap"})
+        word = next((w for s, e, w in word_intervals if s <= start < e), None)
+        units.append({
+            "ch": ch, "start": start, "end": end, "kind": "phoneme",
+            "word_start": word != current_word,
+        })
+        current_word = word
+        prev_end = end
+
+    duration = data.get("end", prev_end)
+    if duration - prev_end > 0.02:
+        units.append({"ch": "", "start": prev_end, "end": duration, "kind": "gap"})
+    return units
 
 
 def word_to_pinyin(word: str) -> str:

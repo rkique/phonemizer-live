@@ -16,6 +16,7 @@ function formatTime(createdAt) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+// Sidebar renders transcripts in row format.
 function Sidebar({
   transcripts,
   selectedId,

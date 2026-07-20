@@ -116,6 +116,79 @@ mostly spent on that and ffmpeg's dependency chain via apt.
 - Record something and confirm it transcribes — this exercises the whole
   pipeline (mic → backend → whisper → phonemizer → SQLite volume)
 
+## 9. Google sign-in / Drive sync (optional)
+
+Signing in with Google is optional — without it, recordings just stay
+partitioned by the anonymous per-browser session id and stored on the
+server as before. To enable it:
+
+**Create OAuth credentials in Google Cloud Console:**
+
+1. [console.cloud.google.com](https://console.cloud.google.com) → create
+   a project (or pick an existing one).
+2. **APIs & Services → Library** → enable the **Google Drive API**.
+3. **APIs & Services → OAuth consent screen** → configure it. User type
+   **External**. Fill in:
+   - App name, support email, developer contact email
+   - **App home page**: `https://phonemizer.live`
+   - **App privacy policy link**: `https://phonemizer.live/privacy.html`
+   - **App terms of service link**: `https://phonemizer.live/terms.html`
+   - **Authorized domain**: `phonemizer.live`
+4. **APIs & Services → Credentials → Create credentials → OAuth client
+   ID** → application type **Web application**.
+5. Add an **Authorized redirect URI**:
+   `https://api.phonemizer.live/auth/google/callback` (swap in your own
+   domain if different; use `http://localhost:8000/auth/google/callback`
+   too if you also want Google sign-in to work against a local backend).
+6. Save, then copy the generated **Client ID** and **Client secret**.
+
+**Publishing status matters.** A brand-new consent screen starts in
+**Testing** — only email addresses you explicitly add under "Test users"
+can complete the OAuth flow; everyone else is blocked at the consent
+screen. To let *any* Google account sign in, click **Publish App** (OAuth
+consent screen page) to move it to **In production**.
+
+Publishing alone lets anyone log in, but shows a "Google hasn't verified
+this app" interstitial first. To remove that screen entirely, submit for
+**verification** (button appears once published):
+
+- Requires the privacy policy / home page links above to already be live
+  at their public URLs (they are, once you deploy — `privacy.html` and
+  `terms.html` ship in `frontend/public/`).
+- Requires proving domain ownership: add `phonemizer.live` in
+  [Google Search Console](https://search.google.com/search-console)
+  under the *same* Google account used for the Cloud project, and verify
+  it (DNS TXT record or HTML file upload).
+- Because `drive.file` is a "sensitive" (not "restricted") scope, this
+  goes through Google's standard review rather than the heavier CASA
+  security assessment required for broader Drive/Gmail scopes — but
+  Google may still ask for a short screen-recording demo of the OAuth
+  consent flow and how the app uses the granted access.
+- Review typically takes a few days to a few weeks. The app keeps working
+  in the interim — production status doesn't require verification to be
+  complete, verification only controls whether the warning interstitial
+  shows.
+
+**Configure the server:**
+
+Create a `.env` file in the deploy directory (same directory as
+`docker-compose.yml` on the server — `docker compose` loads it
+automatically, and it's gitignored so it never gets committed):
+
+```bash
+# /opt/phonemizer-live/.env
+FRONTEND_URL=https://phonemizer.live
+GOOGLE_CLIENT_ID=<your client id>
+GOOGLE_CLIENT_SECRET=<your client secret>
+GOOGLE_REDIRECT_URI=https://api.phonemizer.live/auth/google/callback
+```
+
+Then redeploy (`docker compose up -d --build`) so the backend container
+picks up the new environment variables. Until these are set, the
+"Connect Google Drive" button in the app's settings panel will fail with
+a 503 (`google_auth.is_configured()` returns `False`) — that's the
+expected fallback, not a bug.
+
 ## Notes
 
 - **Data persistence**: recordings and the SQLite DB live in the

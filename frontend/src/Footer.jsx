@@ -7,6 +7,7 @@ function Footer() {
           Source
         </a>
         <a href="/terms.html">Terms and Service</a>
+        <a href="/privacy.html">Privacy</a>
       </div>
       <span className="footer-copyright">© 2026 phonemizer.live</span>
     </footer>

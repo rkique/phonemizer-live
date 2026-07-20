@@ -6,13 +6,16 @@ import sqlite3
 import tempfile
 import zipfile
 from collections import defaultdict
+from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+import drive
+import google_auth
 import storage
 from transcribe import (
     CANONICAL_INVENTORY,
@@ -35,11 +38,18 @@ _LANGUAGE_LABELS = {lang["code"]: lang["label"] for lang in SUPPORTED_LANGUAGES}
 AUDIO_DIR = Path(__file__).parent / "data" / "audio"
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 SAMPLE_AUDIO_DIR = Path(__file__).parent / "sample_audio"
+
 # Sibling to AUDIO_DIR (not nested inside it) so these per-template files
 # are never reachable through the /media static mount, which is scoped to
 # AUDIO_DIR only.
+
 TEMPLATE_DIR = Path(__file__).parent / "data" / "_templates"
 TEMPLATE_MANIFEST = TEMPLATE_DIR / "manifest.json"
+
+# Where /auth/google/callback sends the browser back to once sign-in
+# finishes. Defaults to the Vite dev URL so local testing works with no
+# env var set; production sets this explicitly.
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
 
 app = FastAPI(title="Sonority IPA Transcription")
 
@@ -52,6 +62,7 @@ _DEFAULT_ORIGINS = [
     "https://phonemizer.live",
     "https://www.phonemizer.live",
 ]
+
 _extra_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 
 app.add_middleware(
@@ -70,12 +81,48 @@ def _session_dir(session_id: str) -> Path:
     return d
 
 
+# Gives every endpoint that needs to actually read wav bytes (spectrogram
+# cropping, export, playback) a real local path to work with, regardless of
+# whether the recording lives on disk or in the owner's Drive — downloads
+# to a temp file in the Drive case and cleans it up on exit.
+@contextmanager
+def _wav_local_path(row: sqlite3.Row):
+    if row["drive_wav_id"]:
+        user_row = storage.get_user(row["session_id"])
+        creds = drive.get_valid_credentials(user_row)
+        data = drive.download_file(creds, row["drive_wav_id"])
+        with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
+            tmp.write(data)
+            tmp.flush()
+            yield Path(tmp.name)
+    elif row["audio_path"]:
+        yield Path(row["audio_path"])
+    else:
+        raise HTTPException(status_code=404, detail="no audio for this recording")
+
+
+# For handlers that hand bytes off to something outside this function's own
+# scope (FileResponse streams asynchronously after return, zipfile just
+# wants bytes) — a temp file from _wav_local_path would already be deleted
+# by then, so this reads fully into memory instead. Recordings here are
+# short clips, not large media, so that's not a real cost.
+def _get_wav_bytes(row: sqlite3.Row) -> bytes | None:
+    if row["drive_wav_id"]:
+        user_row = storage.get_user(row["session_id"])
+        creds = drive.get_valid_credentials(user_row)
+        return drive.download_file(creds, row["drive_wav_id"])
+    if row["audio_path"] and Path(row["audio_path"]).exists():
+        return Path(row["audio_path"]).read_bytes()
+    return None
+
+
 # Every endpoint that touches recordings requires this — an anonymous
 # per-browser identifier the frontend generates once and keeps in
-# localStorage. Not an account; just a partition key so recordings from
-# different visitors never mix. Plain <a>/<img>-driven requests (exports,
-# segment thumbnails) can't attach a custom header, so those fall back to
-# a query param instead.
+# localStorage. 
+
+# This is a partition key so recordings from different visitors never mix. 
+# #Plain <a>/<img>-driven requests (exports,segment thumbnails) 
+# can't attach a custom header, so those fall back to a query param instead.
 def require_session_id(
     x_session_id: str | None = Header(default=None),
     session_id: str | None = Query(default=None),
@@ -84,7 +131,6 @@ def require_session_id(
     if not sid or len(sid) > 128:
         raise HTTPException(status_code=400, detail="Missing or invalid session id")
     return sid
-
 
 #serialize a sqlite3.Row to a machine-readable version
 # Intended for over-the-wire use in frontend.
@@ -130,6 +176,48 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/auth/google/login")
+def google_login(session_id: str = Depends(require_session_id)):
+    if not google_auth.is_configured():
+        raise HTTPException(status_code=503, detail="Google sign-in isn't configured on this server")
+    # The current (anonymous, most likely) session_id rides along as the
+    # OAuth "state" param so the callback knows whose recordings to fold
+    # into the signed-in account. Low-stakes if tampered with — session ids
+    # aren't secret, just partition keys, so the worst case is claiming
+    # someone else's anonymous (never-signed-in) history, not a real
+    # account takeover.
+    auth_url = google_auth.build_auth_url(state=session_id)
+    return RedirectResponse(auth_url)
+
+
+@app.get("/auth/google/callback")
+def google_callback(code: str, state: str):
+    old_session_id = state
+    creds = google_auth.exchange_code(code)
+    userinfo = google_auth.get_userinfo(creds)
+    google_sub = userinfo["sub"]
+    email = userinfo.get("email", "")
+
+    storage.upsert_user(
+        google_sub,
+        email,
+        creds.token,
+        creds.refresh_token,
+        creds.expiry.isoformat() if creds.expiry else "",
+    )
+    storage.rekey_session_to_user(old_session_id, google_sub)
+
+    return RedirectResponse(f"{FRONTEND_URL}/?google_session={google_sub}")
+
+
+@app.get("/auth/me")
+def auth_me(session_id: str = Depends(require_session_id)) -> dict:
+    user_row = storage.get_user(session_id)
+    if user_row is None:
+        return {"linked": False, "email": None}
+    return {"linked": True, "email": user_row["email"]}
+
+
 # Shared by /transcribe and sample seeding: takes a WAV file, runs the full
 # pipeline, and stores it under the given session. Consumes (moves)
 # wav_path — callers that want to keep their original file should pass in
@@ -156,18 +244,38 @@ def _ingest_wav(
     )
     media_id = row["id"]
 
-    final_wav = _session_dir(session_id) / f"{media_id}.wav"
-    # Path.replace() is a bare os.rename(), which can't cross a filesystem
-    # boundary — tmp_dir lives on the container's own filesystem while
-    # AUDIO_DIR is a separate mounted volume in production, so this raises
-    # "Invalid cross-device link" there (never showed up locally, where both
-    # paths share one filesystem). shutil.move() falls back to copy+delete
-    # when os.rename fails.
-    shutil.move(str(wav_path), str(final_wav))
-    png_path = _session_dir(session_id) / f"{media_id}.png"
-    render_spectrogram(str(final_wav), str(png_path))
+    # A Google-linked session (session_id == google_sub — see
+    # rekey_session_to_user) gets its audio uploaded to their own Drive
+    # instead of the local data volume, per-request, nothing kept on disk
+    # afterward.
+    user_row = storage.get_user(session_id)
+    if user_row is not None:
+        with tempfile.TemporaryDirectory() as tmp_out:
+            tmp_png = Path(tmp_out) / f"{media_id}.png"
+            render_spectrogram(str(wav_path), str(tmp_png))
 
-    storage.update_media_paths(media_id, str(final_wav), str(png_path))
+            creds = drive.get_valid_credentials(user_row)
+            folder_id = drive.ensure_app_folder(user_row, creds)
+            wav_file_id = drive.upload_file(
+                creds, folder_id, wav_path, f"{media_id}.wav", "audio/wav"
+            )
+            png_file_id = drive.upload_file(
+                creds, folder_id, tmp_png, f"{media_id}.png", "image/png"
+            )
+        storage.update_drive_ids(media_id, wav_file_id, png_file_id)
+    else:
+        final_wav = _session_dir(session_id) / f"{media_id}.wav"
+        # Path.replace() is a bare os.rename(), which can't cross a
+        # filesystem boundary — tmp_dir lives on the container's own
+        # filesystem while AUDIO_DIR is a separate mounted volume in
+        # production, so this raises "Invalid cross-device link" there
+        # (never showed up locally, where both paths share one filesystem).
+        # shutil.move() falls back to copy+delete when os.rename fails.
+        shutil.move(str(wav_path), str(final_wav))
+        png_path = _session_dir(session_id) / f"{media_id}.png"
+        render_spectrogram(str(final_wav), str(png_path))
+        storage.update_media_paths(media_id, str(final_wav), str(png_path))
+
     return storage.get_transcript(media_id)
 
 
@@ -344,12 +452,11 @@ def segment_spectrogram(
     transcript_id: int, start: float, end: float, session_id: str = Depends(require_session_id)
 ) -> Response:
     row = _get_owned_transcript(transcript_id, session_id)
-    if not row["audio_path"]:
-        raise HTTPException(status_code=404, detail="no audio for this recording")
-    png_bytes = render_segment_spectrogram(row["audio_path"], start, end)
+    with _wav_local_path(row) as wav_path:
+        png_bytes = render_segment_spectrogram(str(wav_path), start, end)
     return Response(content=png_bytes, media_type="image/png")
 
-
+#OK
 @app.delete("/transcripts/{transcript_id}")
 def delete_transcript(transcript_id: int, session_id: str = Depends(require_session_id)) -> dict:
     row = _get_owned_transcript(transcript_id, session_id)
@@ -358,9 +465,16 @@ def delete_transcript(transcript_id: int, session_id: str = Depends(require_sess
         path = row[key]
         if path:
             Path(path).unlink(missing_ok=True)
+    if row["drive_wav_id"] or row["drive_png_id"]:
+        user_row = storage.get_user(row["session_id"])
+        if user_row is not None:
+            creds = drive.get_valid_credentials(user_row)
+            for file_id in (row["drive_wav_id"], row["drive_png_id"]):
+                if file_id:
+                    drive.delete_file(creds, file_id)
     return {"deleted": transcript_id}
 
-
+#Todo: make more robust
 @app.get("/transcripts/{transcript_id}/export.txt")
 def export_txt(transcript_id: int, session_id: str = Depends(require_session_id)) -> Response:
     row = _get_owned_transcript(transcript_id, session_id)
@@ -372,12 +486,15 @@ def export_txt(transcript_id: int, session_id: str = Depends(require_session_id)
 
 
 @app.get("/transcripts/{transcript_id}/export.wav")
-def export_wav(transcript_id: int, session_id: str = Depends(require_session_id)) -> FileResponse:
+def export_wav(transcript_id: int, session_id: str = Depends(require_session_id)) -> Response:
     row = _get_owned_transcript(transcript_id, session_id)
-    if not row["audio_path"] or not Path(row["audio_path"]).exists():
+    data = _get_wav_bytes(row)
+    if data is None:
         raise HTTPException(status_code=404, detail="no audio for this recording")
-    return FileResponse(
-        row["audio_path"], media_type="audio/wav", filename=f"{transcript_id}.wav"
+    return Response(
+        content=data,
+        media_type="audio/wav",
+        headers={"Content-Disposition": f'attachment; filename="{transcript_id}.wav"'},
     )
 
 
@@ -391,14 +508,40 @@ def export_bulk(ids: str, session_id: str = Depends(require_session_id)) -> Resp
             if row is None or row["session_id"] != session_id:
                 continue
             zf.writestr(f"{transcript_id}.txt", _text_export(row))
-            if row["audio_path"] and Path(row["audio_path"]).exists():
-                zf.write(row["audio_path"], arcname=f"{transcript_id}.wav")
+            wav_bytes = _get_wav_bytes(row)
+            if wav_bytes is not None:
+                zf.writestr(f"{transcript_id}.wav", wav_bytes)
 
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
         headers={"Content-Disposition": 'attachment; filename="sonority_export.zip"'},
     )
+
+
+@app.get("/media/{session_id}/{filename}")
+def serve_media(session_id: str, filename: str) -> Response:
+    # Local recordings are also reachable via the StaticFiles mount below,
+    # but every request needs to go through here first so a Drive-backed
+    # recording (no file ever touching this disk) can be proxied
+    # transparently — same /media/{session}/{id}.{ext} URL shape either way,
+    # so the frontend never needs to know which storage backend served it.
+    stem, _, ext = filename.rpartition(".")
+    if not stem.isdigit() or ext not in ("wav", "png"):
+        raise HTTPException(status_code=404, detail="not found")
+    row = _get_owned_transcript(int(stem), session_id)
+
+    drive_file_id = row["drive_wav_id"] if ext == "wav" else row["drive_png_id"]
+    if drive_file_id:
+        user_row = storage.get_user(session_id)
+        creds = drive.get_valid_credentials(user_row)
+        data = drive.download_file(creds, drive_file_id)
+        return Response(content=data, media_type="audio/wav" if ext == "wav" else "image/png")
+
+    local_path = row["audio_path"] if ext == "wav" else row["spectrogram_path"]
+    if not local_path or not Path(local_path).exists():
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(local_path)
 
 
 app.mount("/media", StaticFiles(directory=AUDIO_DIR), name="media")

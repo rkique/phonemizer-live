@@ -15,7 +15,7 @@ function LiveWaveform({ level }) {
         <span
           key={i}
           className="live-waveform-bar"
-          style={{ height: `${Math.max(Math.min(l * 700, 100), 8)}%` }}
+          style={{ height: `${Math.max(Math.min(l * 500, 100), 8)}%` }}
         />
       ))}
     </div>
