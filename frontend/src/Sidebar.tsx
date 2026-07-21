@@ -1,6 +1,7 @@
 import { useState } from "react";
+import type { Transcript, View } from "./types";
 
-function formatTime(createdAt) {
+function formatTime(createdAt: string): string {
   if (!createdAt) return "";
   const d = new Date(createdAt.replace(" ", "T") + "Z");
   const now = new Date();
@@ -16,6 +17,18 @@ function formatTime(createdAt) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+interface SidebarProps {
+  transcripts: Transcript[];
+  selectedId: number | null;
+  view: View;
+  pending: number;
+  onSelect: (id: number) => void;
+  onViewChange: (view: View) => void;
+  onDelete: (id: number) => void;
+  onDeleteMany: (ids: number[]) => void;
+  onExportMany: (ids: number[]) => void;
+}
+
 // Sidebar renders transcripts in row format.
 function Sidebar({
   transcripts,
@@ -27,15 +40,15 @@ function Sidebar({
   onDelete,
   onDeleteMany,
   onExportMany,
-}) {
-  const [checked, setChecked] = useState(() => new Set());
+}: SidebarProps) {
+  const [checked, setChecked] = useState<Set<number>>(() => new Set());
   const ordered = transcripts.slice().reverse();
 
   const allChecked = ordered.length > 0 && ordered.every((t) => checked.has(t.id));
 
   //state handlers for sidebar.
-  
-  const toggleOne = (id) => {
+
+  const toggleOne = (id: number) => {
     setChecked((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);

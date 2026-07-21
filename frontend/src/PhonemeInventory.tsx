@@ -1,9 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type { PhonemeInventoryEntry } from "./types";
 
 const POPOVER_WIDTH = 260;
 const POPOVER_MARGIN = 12;
 const PREVIEW_COUNT = 10;
+
+interface ChartCell {
+  row: string;
+  col: string;
+  symbols: string[];
+}
+
+type ExampleClickHandler = (transcriptId: number, time: number) => void;
 
 const CONSONANT_COLS = [
   "Bilabial",
@@ -23,7 +32,7 @@ const CONSONANT_ROWS = [
   "Approximant",
   "Lateral approx.",
 ];
-const CONSONANT_CELLS = [
+const CONSONANT_CELLS: ChartCell[] = [
   { row: "Plosive", col: "Bilabial", symbols: ["p", "b"] },
   { row: "Plosive", col: "Alveolar", symbols: ["t", "d"] },
   { row: "Plosive", col: "Velar", symbols: ["k", "ɡ"] },
@@ -44,7 +53,7 @@ const CONSONANT_CELLS = [
 
 const VOWEL_COLS = ["Front", "Central", "Back"];
 const VOWEL_ROWS = ["Close", "Near-close", "Close-mid", "Mid", "Open-mid", "Near-open", "Open"];
-const VOWEL_CELLS = [
+const VOWEL_CELLS: ChartCell[] = [
   { row: "Close", col: "Front", symbols: ["iː"] },
   { row: "Close", col: "Back", symbols: ["uː"] },
   { row: "Near-close", col: "Front", symbols: ["ɪ", "ɪɹ"] },
@@ -58,7 +67,20 @@ const VOWEL_CELLS = [
   { row: "Open", col: "Back", symbols: ["ɑː", "ɑɹ"] },
 ];
 
-function PhonemeChart({ title, cols, rows, cells, bySymbol, expanded, onToggle, onExampleClick, apiBase, sessionId }) {
+interface PhonemeChartProps {
+  title: string;
+  cols: string[];
+  rows: string[];
+  cells: ChartCell[];
+  bySymbol: Record<string, PhonemeInventoryEntry>;
+  expanded: string | null;
+  onToggle: (symbol: string) => void;
+  onExampleClick: ExampleClickHandler;
+  apiBase: string;
+  sessionId: string;
+}
+
+function PhonemeChart({ title, cols, rows, cells, bySymbol, expanded, onToggle, onExampleClick, apiBase, sessionId }: PhonemeChartProps) {
   return (
     <div className="chart-section">
       <h3>{title}</h3>
@@ -98,7 +120,7 @@ function PhonemeChart({ title, cols, rows, cells, bySymbol, expanded, onToggle, 
             style={{ gridRow: rows.indexOf(row) + 2, gridColumn: cols.indexOf(col) + 2 }}
           >
             {symbols.map((symbol) => {
-              const entry = bySymbol[symbol] ?? { symbol, count: 0, examples: [] };
+              const entry = bySymbol[symbol] ?? { symbol, category: "", count: 0, examples: [] };
               return (
                 <PhonemeCard
                   key={symbol}
@@ -118,9 +140,23 @@ function PhonemeChart({ title, cols, rows, cells, bySymbol, expanded, onToggle, 
   );
 }
 
-function PhonemeCard({ entry, expanded, onToggle, onExampleClick, apiBase, sessionId }) {
-  const buttonRef = useRef(null);
-  const [popoverPos, setPopoverPos] = useState(null);
+interface PopoverPosition {
+  top: number;
+  left: number;
+}
+
+interface PhonemeCardProps {
+  entry: PhonemeInventoryEntry;
+  expanded: boolean;
+  onToggle: (symbol: string) => void;
+  onExampleClick: ExampleClickHandler;
+  apiBase: string;
+  sessionId: string;
+}
+
+function PhonemeCard({ entry, expanded, onToggle, onExampleClick, apiBase, sessionId }: PhonemeCardProps) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [popoverPos, setPopoverPos] = useState<PopoverPosition | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
@@ -237,9 +273,16 @@ function PhonemeCard({ entry, expanded, onToggle, onExampleClick, apiBase, sessi
   );
 }
 
-function PhonemeInventory({ inventory, onExampleClick, apiBase, sessionId }) {
-  const [expanded, setExpanded] = useState(null);
-  const toggle = (symbol) => setExpanded((prev) => (prev === symbol ? null : symbol));
+interface PhonemeInventoryProps {
+  inventory: PhonemeInventoryEntry[];
+  onExampleClick: ExampleClickHandler;
+  apiBase: string;
+  sessionId: string;
+}
+
+function PhonemeInventory({ inventory, onExampleClick, apiBase, sessionId }: PhonemeInventoryProps) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const toggle = (symbol: string) => setExpanded((prev) => (prev === symbol ? null : symbol));
 
   const bySymbol = Object.fromEntries(inventory.map((e) => [e.symbol, e]));
 

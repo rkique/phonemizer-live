@@ -11,6 +11,7 @@ backend/server.log
 # Node
 frontend/node_modules/
 frontend/dist/
+frontend/*.tsbuildinfo
 
 # Editor/OS
 .DS_Store

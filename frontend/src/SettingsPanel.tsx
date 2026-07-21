@@ -1,11 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { resetToAnonymousSession } from "./session";
+import type { DriveStatus } from "./types";
 
 const STORAGE_KEY = "phonemizer-accent-color";
 const VIEWPORT_MARGIN = 12;
 
-function hexToRgbString(hex) {
+interface PanelPosition {
+  top: number;
+  left: number;
+}
+
+function hexToRgbString(hex: string): string {
   const clean = hex.replace("#", "");
   const r = parseInt(clean.slice(0, 2), 16);
   const g = parseInt(clean.slice(2, 4), 16);
@@ -13,18 +20,25 @@ function hexToRgbString(hex) {
   return `${r}, ${g}, ${b}`;
 }
 
-function applyAccent(hex) {
+function applyAccent(hex: string): void {
   document.documentElement.style.setProperty("--accent", hex);
   document.documentElement.style.setProperty("--accent-rgb", hexToRgbString(hex));
 }
 
-function SettingsPanel({ silenceDurationMs, onSilenceDurationChange, apiBase, sessionId }) {
+interface SettingsPanelProps {
+  silenceDurationMs: number;
+  onSilenceDurationChange: (ms: number) => void;
+  apiBase: string;
+  sessionId: string;
+}
+
+function SettingsPanel({ silenceDurationMs, onSilenceDurationChange, apiBase, sessionId }: SettingsPanelProps) {
   const [open, setOpen] = useState(false);
   const [color, setColor] = useState("#ffc65c");
-  const [pos, setPos] = useState(null);
-  const [driveStatus, setDriveStatus] = useState(null); // { linked, email } | null while loading
-  const gearRef = useRef(null);
-  const panelRef = useRef(null);
+  const [pos, setPos] = useState<PanelPosition | null>(null);
+  const [driveStatus, setDriveStatus] = useState<DriveStatus | null>(null); // null while loading
+  const gearRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -49,12 +63,12 @@ function SettingsPanel({ silenceDurationMs, onSilenceDurationChange, apiBase, se
 
   useEffect(() => {
     if (!open) return undefined;
-    const handleClickOutside = (e) => {
+    const handleClickOutside = (e: MouseEvent) => {
       if (
         gearRef.current &&
-        !gearRef.current.contains(e.target) &&
+        !gearRef.current.contains(e.target as Node) &&
         panelRef.current &&
-        !panelRef.current.contains(e.target)
+        !panelRef.current.contains(e.target as Node)
       ) {
         setOpen(false);
       }
@@ -91,7 +105,7 @@ function SettingsPanel({ silenceDurationMs, onSilenceDurationChange, apiBase, se
     setPos({ top, left });
   }, [open, driveStatus]);
 
-  const handleChange = (e) => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const hex = e.target.value;
     setColor(hex);
     applyAccent(hex);

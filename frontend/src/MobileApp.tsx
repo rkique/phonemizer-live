@@ -1,14 +1,33 @@
 import { useState } from "react";
 import LiveWaveform from "./LiveWaveform";
+import type { Language, Transcript, TranscriptUnit } from "./types";
 
-function formatTime(createdAt) {
+type TranscriptTabId = "words" | "ipa-words" | "ipa-phonemes";
+
+interface GroupedIpaUnit {
+  ch: string;
+  start: number;
+  end: number;
+}
+
+// Renderable regardless of which of words/wordIpaSegments/phonemeSegments it
+// came from — only one of word/ch applies depending on the source array.
+interface DisplaySegment {
+  start: number;
+  end: number;
+  word?: string;
+  pinyin?: string;
+  ch?: string;
+}
+
+function formatTime(createdAt: string): string {
   if (!createdAt) return "";
   const d = new Date(createdAt.replace(" ", "T") + "Z");
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function groupUnitsByWord(units) {
-  const groups = [];
+function groupUnitsByWord(units: TranscriptUnit[] | undefined): GroupedIpaUnit[] {
+  const groups: GroupedIpaUnit[] = [];
   for (const u of units ?? []) {
     if (u.kind !== "phoneme") continue;
     if (u.word_start || groups.length === 0) {
@@ -20,6 +39,15 @@ function groupUnitsByWord(units) {
   return groups;
 }
 
+interface MobileRecordingRowProps {
+  entry: Transcript;
+  expanded: boolean;
+  onToggle: (id: number) => void;
+  onDelete: (id: number) => void;
+  apiBase: string;
+  sessionId: string;
+}
+
 // Replacement for Sidebar.jsx on mobile
 function MobileRecordingRow({
   entry,
@@ -28,13 +56,13 @@ function MobileRecordingRow({
   onDelete,
   apiBase,
   sessionId,
-}) {
-  const [mode, setMode] = useState("words");
+}: MobileRecordingRowProps) {
+  const [mode, setMode] = useState<TranscriptTabId>("words");
 
   const wordIpaSegments = groupUnitsByWord(entry.units);
   const phonemeSegments = (entry.units ?? []).filter((u) => u.kind === "phoneme");
 
-  let segments;
+  let segments: DisplaySegment[];
   if (mode === "words") segments = entry.words ?? [];
   else if (mode === "ipa-words") segments = wordIpaSegments;
   else segments = phonemeSegments;
@@ -66,11 +94,13 @@ function MobileRecordingRow({
           )}
 
           <div className="mobile-transcript-tabs">
-            {[
-              { id: "words", label: entry.language_label ?? "English" },
-              { id: "ipa-words", label: "Words" },
-              { id: "ipa-phonemes", label: "Phonemes" },
-            ].map((tab) => (
+            {(
+              [
+                { id: "words", label: entry.language_label ?? "English" },
+                { id: "ipa-words", label: "Words" },
+                { id: "ipa-phonemes", label: "Phonemes" },
+              ] satisfies { id: TranscriptTabId; label: string }[]
+            ).map((tab) => (
               <button
                 key={tab.id}
                 className={mode === tab.id ? "mobile-transcript-tab active" : "mobile-transcript-tab"}
@@ -124,6 +154,22 @@ function MobileRecordingRow({
   );
 }
 
+interface MobileAppProps {
+  transcripts: Transcript[];
+  pending: number;
+  isListening: boolean;
+  toggle: () => void;
+  level: number;
+  elapsed: number;
+  error: string | null;
+  language: string;
+  languages: Language[];
+  onLanguageChange: (code: string) => void;
+  onDelete: (id: number) => void;
+  apiBase: string;
+  sessionId: string;
+}
+
 function MobileApp({
   transcripts,
   pending,
@@ -138,11 +184,11 @@ function MobileApp({
   onDelete,
   apiBase,
   sessionId,
-}) {
-  const [expandedId, setExpandedId] = useState(null);
+}: MobileAppProps) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const ordered = transcripts.slice().reverse();
 
-  const toggleExpanded = (id) => {
+  const toggleExpanded = (id: number) => {
     setExpandedId((prev) => (prev === id ? null : id));
   };
 

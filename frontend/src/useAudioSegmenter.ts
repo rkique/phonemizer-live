@@ -7,25 +7,31 @@ const SILENCE_THRESHOLD = 0.02;
 export const DEFAULT_SILENCE_DURATION_MS = 1500;
 const MIN_UTTERANCE_MS = 300;
 
+export interface UseAudioSegmenterResult {
+  isListening: boolean;
+  start: () => Promise<void>;
+  stop: () => void;
+}
+
 export function useAudioSegmenter(
-  onUtterance,
-  onLevel,
-  onElapsed,
+  onUtterance: (blob: Blob) => void,
+  onLevel: ((rms: number) => void) | undefined,
+  onElapsed: ((seconds: number) => void) | undefined,
   silenceDurationMs = DEFAULT_SILENCE_DURATION_MS
-) {
+): UseAudioSegmenterResult {
   const [isListening, setIsListening] = useState(false);
 
-  const streamRef = useRef(null);
-  const streamPromiseRef = useRef(null);
-  const audioCtxRef = useRef(null);
-  const analyserRef = useRef(null);
-  const recorderRef = useRef(null);
-  const chunksRef = useRef([]);
-  const rafRef = useRef(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const streamPromiseRef = useRef<Promise<MediaStream> | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const rafRef = useRef<number | null>(null);
   const recordingStartRef = useRef(0);
 
-  const silenceStartRef = useRef(null);
-  const speechStartRef = useRef(null);
+  const silenceStartRef = useRef<number | null>(null);
+  const speechStartRef = useRef<number | null>(null);
   const hasSpeechRef = useRef(false);
 
   const startRecorder = useCallback(() => {
@@ -33,7 +39,7 @@ export function useAudioSegmenter(
     if (!stream) return;
     const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
     chunksRef.current = [];
-    recorder.ondataavailable = (e) => {
+    recorder.ondataavailable = (e: BlobEvent) => {
       if (e.data.size > 0) chunksRef.current.push(e.data);
     };
     recorder.start();

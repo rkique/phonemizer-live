@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_SILENCE_DURATION_MS, useAudioSegmenter } from "./useAudioSegmenter";
 import Sidebar from "./Sidebar";
 import SpectrogramView from "./SpectrogramView";
+import type { SeekRequest } from "./SpectrogramView";
 import PhonemeInventory from "./PhonemeInventory";
 // Temporarily disabled while isolating a recording-pipeline bug — untested,
 // not implicated yet, just ruled out of the picture for now.
@@ -12,6 +13,7 @@ import Footer from "./Footer";
 import MobileApp from "./MobileApp";
 import { useIsMobile } from "./useIsMobile";
 import { getSessionId } from "./session";
+import type { Language, PhonemeInventoryEntry, Transcript, View } from "./types";
 import "./App.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
@@ -22,39 +24,39 @@ const SESSION_ID = getSessionId();
 function App() {
   const isMobile = useIsMobile();
   //array of phoneme transcripts
-  const [transcripts, setTranscripts] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [transcripts, setTranscripts] = useState<Transcript[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [pending, setPending] = useState(0);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [level, setLevel] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const [view, setView] = useState("recordings");
-  const [inventory, setInventory] = useState([]);
-  const [seekRequest, setSeekRequest] = useState(null);
-  const [languages, setLanguages] = useState([]);
+  const [view, setView] = useState<View>("recordings");
+  const [inventory, setInventory] = useState<PhonemeInventoryEntry[]>([]);
+  const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null);
+  const [languages, setLanguages] = useState<Language[]>([]);
   const [language, setLanguage] = useState("en-us");
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [silenceDurationMs, setSilenceDurationMs] = useState(() => {
     const saved = Number(localStorage.getItem(SILENCE_DURATION_STORAGE_KEY));
     return saved > 0 ? saved : DEFAULT_SILENCE_DURATION_MS;
   });
-  const recordControlRef = useRef(null);
+  const recordControlRef = useRef<HTMLDivElement>(null);
 
-  const handleSilenceDurationChange = (ms) => {
+  const handleSilenceDurationChange = (ms: number) => {
     setSilenceDurationMs(ms);
     localStorage.setItem(SILENCE_DURATION_STORAGE_KEY, String(ms));
   };
 
   const loadPhonemes = useCallback(() => {
     fetch(`${API_BASE}/phonemes`, { headers: { "X-Session-Id": SESSION_ID } })
-      .then((r) => r.json())
+      .then((r) => r.json() as Promise<{ inventory: PhonemeInventoryEntry[] }>)
       .then((data) => setInventory(data.inventory ?? []))
       .catch(() => {});
   }, []);
 
   useEffect(() => {
     fetch(`${API_BASE}/history`, { headers: { "X-Session-Id": SESSION_ID } })
-      .then((r) => r.json())
+      .then((r) => r.json() as Promise<Transcript[]>)
       .then((rows) => {
         const ordered = rows.slice().reverse();
         setTranscripts(ordered);
@@ -63,7 +65,7 @@ function App() {
       .catch(() => {});
     loadPhonemes();
     fetch(`${API_BASE}/languages`)
-      .then((r) => r.json())
+      .then((r) => r.json() as Promise<{ languages: Language[]; default: string }>)
       .then((data) => {
         setLanguages(data.languages ?? []);
         if (data.default) setLanguage(data.default);
@@ -72,7 +74,7 @@ function App() {
   }, [loadPhonemes]);
 
   const handleUtterance = useCallback(
-    async (blob) => {
+    async (blob: Blob) => {
       setPending((p) => p + 1);
       setError(null);
       try {
@@ -85,7 +87,7 @@ function App() {
           body: form,
         });
         if (!res.ok) throw new Error(`status ${res.status}`);
-        const data = await res.json();
+        const data = (await res.json()) as Transcript;
         if (data.text) {
           setTranscripts((prev) => [...prev, data]);
           setSelectedId(data.id);
@@ -93,7 +95,7 @@ function App() {
         } else {
           setError("No speech detected in that recording — try again.");
         }
-      } catch (e) {
+      } catch {
         setError("Transcription failed — is the backend running on :8000?");
       } finally {
         setPending((p) => p - 1);
@@ -119,19 +121,19 @@ function App() {
     }
     try {
       await start();
-    } catch (e) {
+    } catch {
       setError("Microphone access denied.");
     }
   };
 
-  const jumpToExample = (transcriptId, time) => {
+  const jumpToExample = (transcriptId: number, time: number) => {
     setSelectedId(transcriptId);
     setSeekRequest({ transcriptId, time, key: Date.now() });
     setView("recordings");
   };
 
   const deleteIds = useCallback(
-    async (ids) => {
+    async (ids: number[]) => {
       const idSet = new Set(ids);
       await Promise.all(
         ids.map((id) =>
@@ -144,7 +146,7 @@ function App() {
       setTranscripts((prev) => {
         const remaining = prev.filter((t) => !idSet.has(t.id));
         setSelectedId((prevSelected) =>
-          idSet.has(prevSelected)
+          prevSelected != null && idSet.has(prevSelected)
             ? remaining.length > 0
               ? remaining[remaining.length - 1].id
               : null
@@ -157,17 +159,17 @@ function App() {
     [loadPhonemes]
   );
 
-  const handleDelete = useCallback((id) => deleteIds([id]), [deleteIds]);
+  const handleDelete = useCallback((id: number) => deleteIds([id]), [deleteIds]);
 
-  const exportIds = useCallback((ids) => {
+  const exportIds = useCallback((ids: number[]) => {
     if (ids.length === 0) return;
     window.location.href = `${API_BASE}/export/bulk?ids=${ids.join(",")}&session_id=${SESSION_ID}`;
   }, []);
 
   useEffect(() => {
     if (!langMenuOpen) return undefined;
-    const handleClickOutside = (e) => {
-      if (recordControlRef.current && !recordControlRef.current.contains(e.target)) {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (recordControlRef.current && !recordControlRef.current.contains(e.target as Node)) {
         setLangMenuOpen(false);
       }
     };
@@ -180,15 +182,15 @@ function App() {
   const orderedTranscripts = transcripts.slice().reverse();
 
   useEffect(() => {
-    const handleKeydown = (e) => {
-      const target = e.target;
+    const handleKeydown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
       if (target && (EDITABLE_TAGS.has(target.tagName) || target.isContentEditable)) return;
 
       if (e.code === "ArrowUp" || e.code === "ArrowDown") {
         if (orderedTranscripts.length === 0) return;
         e.preventDefault();
         const currentIndex = orderedTranscripts.findIndex((t) => t.id === selectedId);
-        let nextIndex;
+        let nextIndex: number;
         if (currentIndex === -1) nextIndex = 0;
         else nextIndex = e.code === "ArrowUp" ? currentIndex - 1 : currentIndex + 1;
         nextIndex = Math.max(0, Math.min(orderedTranscripts.length - 1, nextIndex));

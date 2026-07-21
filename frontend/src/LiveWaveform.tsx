@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 
 const BAR_COUNT = 28;
 
-function LiveWaveform({ level }) {
+interface LiveWaveformProps {
+  level: number;
+}
+
+function LiveWaveform({ level }: LiveWaveformProps) {
   const [levels, setLevels] = useState(() => Array(BAR_COUNT).fill(0));
 
   useEffect(() => {

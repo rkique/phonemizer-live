@@ -1,18 +1,54 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.esm.js";
 import SpectrogramPlugin from "wavesurfer.js/dist/plugins/spectrogram.esm.js";
+import type { Transcript, TranscriptUnit } from "./types";
 
 const EDITABLE_TAGS = new Set(["INPUT", "TEXTAREA"]);
 const WAVE_HEIGHT = 32;
 
-const STATIC_TABS = [
+type TranscriptTabId = "words" | "ipa-words" | "ipa-phonemes";
+
+const STATIC_TABS: { id: TranscriptTabId; label: string }[] = [
   { id: "ipa-words", label: "Words" },
   { id: "ipa-phonemes", label: "Phonemes" },
 ];
 
-function groupUnitsByWord(units) {
-  const groups = [];
+interface GroupedIpaUnit {
+  ch: string;
+  start: number;
+  end: number;
+}
+
+// Renderable in the pill row regardless of which of words/wordIpaSegments/
+// phonemeSegments it came from — fields beyond start/end are optional since
+// only one of word/pinyin/ch applies depending on the source array.
+interface DisplaySegment {
+  start: number;
+  end: number;
+  word?: string;
+  pinyin?: string;
+  ch?: string;
+}
+
+type HoverZone = "waveform" | "spectrogram";
+
+export interface SeekRequest {
+  transcriptId: number;
+  time: number;
+  key: number;
+}
+
+interface SpectrogramViewProps {
+  transcript: Transcript;
+  apiBase: string;
+  sessionId: string;
+  seekRequest: SeekRequest | null;
+}
+
+function groupUnitsByWord(units: TranscriptUnit[] | undefined): GroupedIpaUnit[] {
+  const groups: GroupedIpaUnit[] = [];
   for (const u of units ?? []) {
     if (u.kind !== "phoneme") continue;
     //keep track of groups
@@ -27,29 +63,29 @@ function groupUnitsByWord(units) {
   return groups;
 }
 
-function SpectrogramView({ transcript, apiBase, sessionId, seekRequest }) {
-  const containerRef = useRef(null);
-  const audioRef = useRef(null);
+function SpectrogramView({ transcript, apiBase, sessionId, seekRequest }: SpectrogramViewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   //wavesurfer timestamp
-  const wsRef = useRef(null);
+  const wsRef = useRef<WaveSurfer | null>(null);
   const readyRef = useRef(false);
-  const pendingSeekRef = useRef(null);
+  const pendingSeekRef = useRef<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [mode, setMode] = useState("words");
-  const [hoverUnit, setHoverUnit] = useState(null);
-  const [hoverZone, setHoverZone] = useState(null);
-  const [hoverTime, setHoverTime] = useState(null);
+  const [mode, setMode] = useState<TranscriptTabId>("words");
+  const [hoverUnit, setHoverUnit] = useState<DisplaySegment | null>(null);
+  const [hoverZone, setHoverZone] = useState<HoverZone | null>(null);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
   // Mirrors hoverUnit/hoverZone for the keydown handler below, which is
   // bound once inside the wavesurfer-setup effect and would otherwise only
   // ever see the hover state from the moment it was attached.
-  const hoverUnitRef = useRef(null);
-  const hoverZoneRef = useRef(null);
+  const hoverUnitRef = useRef<DisplaySegment | null>(null);
+  const hoverZoneRef = useRef<HoverZone | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
 
   const { text, units, words, audio_url: audioPath, language_label: languageLabel } = transcript;
   const audioUrl = audioPath ? `${apiBase}${audioPath}` : undefined;
-  const tabs = useMemo(
+  const tabs = useMemo<{ id: TranscriptTabId; label: string }[]>(
     () => [{ id: "words", label: languageLabel ?? "English" }, ...STATIC_TABS],
     [languageLabel]
   );
@@ -115,16 +151,16 @@ function SpectrogramView({ transcript, apiBase, sessionId, seekRequest }) {
     // Regions otherwise swallow the click before wavesurfer's own precise
     // seek runs, snapping playback to the region's start — seek to the
     // exact clicked position instead so hover and click always agree.
-    const unsubClick = regions.on("region-clicked", (region, e) => {
+    const unsubClick = regions.on("region-clicked", (_region, e) => {
       e.stopPropagation();
-      const rect = containerRef.current.getBoundingClientRect();
+      const rect = containerRef.current!.getBoundingClientRect();
       const fraction = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
       ws.setTime(fraction * ws.getDuration());
     });
 
-    const handleKeydown = (e) => {
+    const handleKeydown = (e: KeyboardEvent) => {
       if (e.code !== "Space") return;
-      const target = e.target;
+      const target = e.target as HTMLElement | null;
       if (target && (EDITABLE_TAGS.has(target.tagName) || target.isContentEditable)) return;
       e.preventDefault();
 
@@ -172,7 +208,7 @@ function SpectrogramView({ transcript, apiBase, sessionId, seekRequest }) {
     [units]
   );
 
-  const handleMouseMove = (e) => {
+  const handleMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (!duration) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const fraction = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
@@ -194,7 +230,7 @@ function SpectrogramView({ transcript, apiBase, sessionId, seekRequest }) {
     hoverZoneRef.current = null;
   };
 
-  let segments;
+  let segments: DisplaySegment[];
   if (mode === "words") segments = words ?? [];
   else if (mode === "ipa-words") segments = wordIpaSegments;
   else segments = phonemeSegments;

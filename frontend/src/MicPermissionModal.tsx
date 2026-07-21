@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 
 function MicPermissionModal() {
-  const [permissionState, setPermissionState] = useState("prompt");
+  const [permissionState, setPermissionState] = useState<PermissionState>("prompt");
   const [dismissed, setDismissed] = useState(false);
   const [requesting, setRequesting] = useState(false);
 
   useEffect(() => {
-    let revoke;
+    let revoke: (() => void) | undefined;
     navigator.permissions
       ?.query({ name: "microphone" })
       .then((status) => {
