@@ -132,6 +132,15 @@ def require_session_id(
         raise HTTPException(status_code=400, detail="Missing or invalid session id")
     return sid
 
+# Makes the file recognizable at a glance in Drive's own file list, where
+# only the name is visible without opening each one. media_id (the DB's
+# actual dedup key) intentionally left out of the visible name — falls back
+# to it only if a recording somehow has no IPA to label with.
+def _drive_filename(media_id: int, ipa: str, ext: str) -> str:
+    label = ipa.strip().replace("/", "-")[:60]
+    return f"{label}.{ext}" if label else f"{media_id}.{ext}"
+
+
 #serialize a sqlite3.Row to a machine-readable version
 # Intended for over-the-wire use in frontend.
 def _serialize(row: sqlite3.Row) -> dict:
@@ -143,7 +152,7 @@ def _serialize(row: sqlite3.Row) -> dict:
         "duration": row["duration"],
         "units": json.loads(row["units_json"]) if row["units_json"] else [],
         "words": json.loads(row["words_json"]) if row["words_json"] else [],
-        "audio_url": f"/media/{sid}/{row['id']}.wav" if row["audio_path"] else None,
+        "audio_url": f"/media/{sid}/{row['id']}.wav" if (row["audio_path"] or row["drive_wav_id"]) else None,
         "spectrogram_url": f"/media/{sid}/{row['id']}.png" if row["spectrogram_path"] else None,
         "created_at": row["created_at"],
         "language": row["language"],
@@ -193,7 +202,7 @@ def google_login(session_id: str = Depends(require_session_id)):
 @app.get("/auth/google/callback")
 def google_callback(code: str, state: str):
     old_session_id = state
-    creds = google_auth.exchange_code(code)
+    creds = google_auth.exchange_code(code, state)
     userinfo = google_auth.get_userinfo(creds)
     google_sub = userinfo["sub"]
     email = userinfo.get("email", "")
@@ -214,8 +223,12 @@ def google_callback(code: str, state: str):
 def auth_me(session_id: str = Depends(require_session_id)) -> dict:
     user_row = storage.get_user(session_id)
     if user_row is None:
-        return {"linked": False, "email": None}
-    return {"linked": True, "email": user_row["email"]}
+        return {"linked": False, "email": None, "drive_folder_url": None}
+    # drive_folder_id is only set on the first recording made after linking
+    # (see drive.ensure_app_folder) — null until then, not a bug.
+    folder_id = user_row["drive_folder_id"]
+    folder_url = f"https://drive.google.com/drive/folders/{folder_id}" if folder_id else None
+    return {"linked": True, "email": user_row["email"], "drive_folder_url": folder_url}
 
 
 # Shared by /transcribe and sample seeding: takes a WAV file, runs the full
@@ -246,23 +259,22 @@ def _ingest_wav(
 
     # A Google-linked session (session_id == google_sub — see
     # rekey_session_to_user) gets its audio uploaded to their own Drive
-    # instead of the local data volume, per-request, nothing kept on disk
-    # afterward.
+    # instead of the local data volume. The spectrogram is a cheap-to-derive
+    # cache artifact, not something worth persisting to the user's Drive —
+    # it's kept on the local data volume same as the anonymous path, and
+    # regenerated from the wav on disk if that volume is ever wiped.
     user_row = storage.get_user(session_id)
     if user_row is not None:
-        with tempfile.TemporaryDirectory() as tmp_out:
-            tmp_png = Path(tmp_out) / f"{media_id}.png"
-            render_spectrogram(str(wav_path), str(tmp_png))
+        creds = drive.get_valid_credentials(user_row)
+        folder_id = drive.ensure_app_folder(user_row, creds)
+        wav_file_id = drive.upload_file(
+            creds, folder_id, wav_path, _drive_filename(media_id, ipa, "wav"), "audio/wav"
+        )
+        storage.update_drive_ids(media_id, wav_file_id, None)
 
-            creds = drive.get_valid_credentials(user_row)
-            folder_id = drive.ensure_app_folder(user_row, creds)
-            wav_file_id = drive.upload_file(
-                creds, folder_id, wav_path, f"{media_id}.wav", "audio/wav"
-            )
-            png_file_id = drive.upload_file(
-                creds, folder_id, tmp_png, f"{media_id}.png", "image/png"
-            )
-        storage.update_drive_ids(media_id, wav_file_id, png_file_id)
+        png_path = _session_dir(session_id) / f"{media_id}.png"
+        render_spectrogram(str(wav_path), str(png_path))
+        storage.update_spectrogram_path(media_id, str(png_path))
     else:
         final_wav = _session_dir(session_id) / f"{media_id}.wav"
         # Path.replace() is a bare os.rename(), which can't cross a

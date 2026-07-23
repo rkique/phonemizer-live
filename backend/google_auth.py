@@ -20,7 +20,16 @@ SCOPES = [
 
 USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v3/userinfo"
 
+# Google's auth endpoint requires PKCE — the code_verifier used to build the
+# authorization_url must be the exact same one presented at token exchange.
+# build_auth_url() and exchange_code() necessarily run in separate requests
+# (the user's browser round-trips through Google in between), so the
+# verifier has to be stashed somewhere in between. Keyed by state (already a
+# single-use, per-login-attempt token) since nothing else ties the two
+# requests together.
+_pending_code_verifiers: dict[str, str] = {}
 
+#requires environment variables to be set to ID and Secret.
 def is_configured() -> bool:
     return bool(os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get("GOOGLE_CLIENT_SECRET"))
 
@@ -52,11 +61,15 @@ def build_auth_url(state: str) -> str:
         prompt="consent",
         state=state,
     )
+    _pending_code_verifiers[state] = flow.code_verifier
     return auth_url
 
 
-def exchange_code(code: str) -> Credentials:
-    flow = Flow.from_client_config(_client_config(), scopes=SCOPES, redirect_uri=_redirect_uri())
+def exchange_code(code: str, state: str) -> Credentials:
+    code_verifier = _pending_code_verifiers.pop(state, None)
+    flow = Flow.from_client_config(
+        _client_config(), scopes=SCOPES, redirect_uri=_redirect_uri(), code_verifier=code_verifier
+    )
     flow.fetch_token(code=code)
     return flow.credentials
 

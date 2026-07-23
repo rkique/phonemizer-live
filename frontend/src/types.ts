@@ -52,4 +52,5 @@ export interface PhonemeInventoryEntry {
 export interface DriveStatus {
   linked: boolean;
   email: string | null;
+  drive_folder_url: string | null;
 }

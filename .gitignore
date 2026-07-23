@@ -18,6 +18,7 @@ frontend/*.tsbuildinfo
 
 phonemizer_deploy_key
 phonemizer_deploy_key.pub
+*.key
 
 # Server-side secrets (Google OAuth client id/secret, etc.) — loaded by
 # `docker compose` from the deploy directory, never committed.

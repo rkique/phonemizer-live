@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import LiveWaveform from "./LiveWaveform";
-import type { Language, Transcript, TranscriptUnit } from "./types";
+import type { DriveStatus, Language, Transcript, TranscriptUnit } from "./types";
 
 type TranscriptTabId = "words" | "ipa-words" | "ipa-phonemes";
 
@@ -186,11 +186,19 @@ function MobileApp({
   sessionId,
 }: MobileAppProps) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [driveStatus, setDriveStatus] = useState<DriveStatus | null>(null);
   const ordered = transcripts.slice().reverse();
 
   const toggleExpanded = (id: number) => {
     setExpandedId((prev) => (prev === id ? null : id));
   };
+
+  useEffect(() => {
+    fetch(`${apiBase}/auth/me`, { headers: { "X-Session-Id": sessionId } })
+      .then((r) => r.json() as Promise<DriveStatus>)
+      .then(setDriveStatus)
+      .catch(() => setDriveStatus({ linked: false, email: null, drive_folder_url: null }));
+  }, [apiBase, sessionId]);
 
   return (
     <div className="mobile-app">
@@ -209,6 +217,22 @@ function MobileApp({
           ))}
         </select>
       </div>
+
+      {driveStatus && !driveStatus.linked && (
+        <a className="mobile-drive-connect" href={`${apiBase}/auth/google/login?session_id=${sessionId}`}>
+          Connect Google Drive
+        </a>
+      )}
+      {driveStatus?.linked && (
+        <div className="mobile-drive-connected">
+          Synced to Drive — <span className="mobile-drive-email">{driveStatus.email}</span>
+          {driveStatus.drive_folder_url && (
+            <a href={driveStatus.drive_folder_url} target="_blank" rel="noreferrer">
+              View
+            </a>
+          )}
+        </div>
+      )}
 
       <div className="mobile-record-row">
         <button

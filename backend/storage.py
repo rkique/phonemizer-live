@@ -101,11 +101,19 @@ def update_media_paths(transcript_id: int, audio_path: str, spectrogram_path: st
         )
 
 
-def update_drive_ids(transcript_id: int, drive_wav_id: str, drive_png_id: str) -> None:
+def update_drive_ids(transcript_id: int, drive_wav_id: str, drive_png_id: str | None) -> None:
     with connect() as conn:
         conn.execute(
             "UPDATE transcripts SET drive_wav_id = ?, drive_png_id = ? WHERE id = ?",
             (drive_wav_id, drive_png_id, transcript_id),
+        )
+
+
+def update_spectrogram_path(transcript_id: int, spectrogram_path: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE transcripts SET spectrogram_path = ? WHERE id = ?",
+            (spectrogram_path, transcript_id),
         )
 
 

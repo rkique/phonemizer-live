@@ -58,7 +58,7 @@ function SettingsPanel({ silenceDurationMs, onSilenceDurationChange, apiBase, se
     fetch(`${apiBase}/auth/me`, { headers: { "X-Session-Id": sessionId } })
       .then((r) => r.json())
       .then(setDriveStatus)
-      .catch(() => setDriveStatus({ linked: false, email: null }));
+      .catch(() => setDriveStatus({ linked: false, email: null, drive_folder_url: null }));
   }, [open, apiBase, sessionId]);
 
   useEffect(() => {
@@ -193,6 +193,16 @@ function SettingsPanel({ silenceDurationMs, onSilenceDurationChange, apiBase, se
               ) : driveStatus.linked ? (
                 <>
                   <span className="settings-drive-email">{driveStatus.email}</span>
+                  {driveStatus.drive_folder_url && (
+                    <a
+                      className="settings-reset-btn"
+                      href={driveStatus.drive_folder_url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      View in Drive
+                    </a>
+                  )}
                   <button className="settings-reset-btn" onClick={handleDisconnect}>
                     Disconnect
                   </button>
@@ -208,7 +218,9 @@ function SettingsPanel({ silenceDurationMs, onSilenceDurationChange, apiBase, se
             </div>
             <p className="settings-panel-hint">
               {driveStatus?.linked
-                ? "New recordings are saved to your Drive instead of this server."
+                ? driveStatus.drive_folder_url
+                  ? "New recordings are saved to your Drive instead of this server."
+                  : "Linked — the Drive folder appears after your first recording."
                 : "Sign in to sync recordings to your own Google Drive instead of this server."}
             </p>
           </div>,
